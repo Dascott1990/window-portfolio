@@ -4,12 +4,30 @@ import { VscGithubInverted } from "react-icons/vsc";
 import { BiSolidFilePdf } from "react-icons/bi";
 import { FaGamepad, FaRegMoon, FaRegSun, FaMusic, FaMapMarkerAlt } from "react-icons/fa";
 import { MdEmail } from "react-icons/md";
-import { motion } from "framer-motion";
+import { motion, useMotionValue } from "framer-motion";
 
 const DesktopItems = ({ isStartMenuOpen, setShowModal, setGame, setMusicOpen, setMapOpen }) => {
   const [darkMode, setDarkMode] = useState(false);
   const [time, setTime] = useState(new Date());
   const [weather, setWeather] = useState({ temp: '--°', condition: '--' });
+  const [togglePosition, setTogglePosition] = useState({ x: 0, y: 0 });
+
+  // Load saved position from localStorage
+  useEffect(() => {
+    const savedPosition = localStorage.getItem('togglePosition');
+    if (savedPosition) {
+      setTogglePosition(JSON.parse(savedPosition));
+    }
+  }, []);
+
+  const x = useMotionValue(togglePosition.x);
+  const y = useMotionValue(togglePosition.y);
+
+  const handleDragEnd = (event, info) => {
+    const newPosition = { x: info.point.x, y: info.point.y };
+    setTogglePosition(newPosition);
+    localStorage.setItem('togglePosition', JSON.stringify(newPosition));
+  };
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
@@ -127,16 +145,27 @@ const DesktopItems = ({ isStartMenuOpen, setShowModal, setGame, setMusicOpen, se
         ))}
       </div>
 
-      {/* Dark Mode Toggle */}
+      {/* Draggable Dark Mode Toggle */}
       <motion.button
+        drag
+        dragConstraints={{
+          top: 0,
+          left: 0,
+          right: typeof window !== 'undefined' ? window.innerWidth - 48 : 0,
+          bottom: typeof window !== 'undefined' ? window.innerHeight - 48 : 0,
+        }}
+        dragElastic={0.1}
+        onDragEnd={handleDragEnd}
+        style={{ x, y }}
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.9 }}
         onClick={() => {
           setDarkMode(!darkMode);
           playSound();
         }}
-        className={`fixed bottom-4 right-4 p-3 rounded-full ${glassEffect} ${borderEffect} ${shadowEffect} z-50`}
+        className={`fixed p-3 rounded-full ${glassEffect} ${borderEffect} ${shadowEffect} z-50 cursor-grab active:cursor-grabbing`}
         aria-label="Toggle dark mode"
+        initial={togglePosition}
       >
         {darkMode ? (
           <FaRegSun className="text-yellow-300 text-xl" />
