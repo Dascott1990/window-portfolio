@@ -66,18 +66,54 @@ const DesktopItems = ({ isStartMenuOpen, setShowModal, setGame, setMusicOpen, se
     tap: { scale: 0.95 },
   };
 
-  const glassEffect = "backdrop-blur-md bg-white/20 dark:bg-gray-800/30";
-  const borderEffect = "border border-white/20 dark:border-gray-600/30";
-  const shadowEffect = "shadow-lg shadow-black/20";
+const glassEffect = "backdrop-blur-sm bg-white/30 dark:bg-gray-900/10";
+const borderEffect = "border border-white/30 dark:border-gray-800/20";
+const shadowEffect = "shadow-md shadow-black/10 hover:shadow-lg hover:shadow-black/20";
 
+  // Enhanced icons with consistent styling
   const icons = [
-    { icon: <FcFolder size={48} />, label: "Projects", action: () => { playSound(); setShowModal(true); } },
-    { icon: <VscGithubInverted size={48} className="text-white" />, label: "Github", action: () => { playSound(); window.open("https://github.com/dascott1990", "_blank"); } },
-    { icon: <BiSolidFilePdf size={48} className="text-red-600" />, label: "Resume", action: () => { playSound(); window.open("https://drive.google.com/file/d/1tYMVwL4xGvdwlP4xn8UC8K24gz0PrS6F/view?usp=drive_link", "_blank"); } },
-    { icon: <FaGamepad size={48} className="text-green-500" />, label: "Game", action: () => { playSound(); setGame(true); } },
-    { icon: <FaMusic size={48} className="text-purple-500" />, label: "Music", action: () => { playSound(); setMusicOpen(true); } },
-    { icon: <FaMapMarkerAlt size={48} className="text-red-500" />, label: "Map", action: () => { playSound(); setMapOpen(true); } },
-    { icon: <MdEmail size={48} className="text-blue-400" />, label: "Contact", action: () => { playSound(); window.location.href = "mailto:dascottblog@gmail.com"; } }
+    { 
+      icon: <FcFolder size={48} className="drop-shadow-md" />, 
+      label: "Projects", 
+      action: () => { playSound(); setShowModal(true); },
+      bg: "bg-blue-100/20"
+    },
+    { 
+      icon: <VscGithubInverted size={48} className="text-gray-800 dark:text-gray-100 drop-shadow-md" />, 
+      label: "Github", 
+      action: () => { playSound(); window.open("https://github.com/dascott1990", "_blank"); },
+      bg: "bg-gray-800/20 dark:bg-gray-100/20"
+    },
+    { 
+      icon: <BiSolidFilePdf size={48} className="text-red-500 drop-shadow-md" />, 
+      label: "Resume", 
+      action: () => { playSound(); window.open("https://drive.google.com/file/d/1tYMVwL4xGvdwlP4xn8UC8K24gz0PrS6F/view?usp=drive_link", "_blank"); },
+      bg: "bg-red-500/20"
+    },
+    { 
+      icon: <FaGamepad size={48} className="text-green-500 drop-shadow-md" />, 
+      label: "Game", 
+      action: () => { playSound(); setGame(true); },
+      bg: "bg-green-500/20"
+    },
+    { 
+      icon: <FaMusic size={48} className="text-purple-500 drop-shadow-md" />, 
+      label: "Music", 
+      action: () => { playSound(); setMusicOpen(true); },
+      bg: "bg-purple-500/20"
+    },
+    { 
+      icon: <FaMapMarkerAlt size={48} className="text-red-400 drop-shadow-md" />, 
+      label: "Map", 
+      action: () => { playSound(); setMapOpen(true); },
+      bg: "bg-red-400/20"
+    },
+    { 
+      icon: <MdEmail size={48} className="text-blue-400 drop-shadow-md" />, 
+      label: "Contact", 
+      action: () => { playSound(); window.location.href = "mailto:dascottblog@gmail.com"; },
+      bg: "bg-blue-400/20"
+    }
   ];
 
   return (
@@ -109,7 +145,7 @@ const DesktopItems = ({ isStartMenuOpen, setShowModal, setGame, setMusicOpen, se
         </div>
       </div>
 
-      {/* Desktop Layout */}
+      {/* Desktop Layouts */}
       <div className="hidden md:grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 p-8">
         {icons.map((item, index) => (
           <motion.div
@@ -118,10 +154,12 @@ const DesktopItems = ({ isStartMenuOpen, setShowModal, setGame, setMusicOpen, se
             whileHover="hover"
             whileTap="tap"
             onClick={item.action}
-            className={`flex flex-col items-center p-4 rounded-xl ${glassEffect} ${borderEffect} ${shadowEffect} cursor-pointer`}
+            className={`flex flex-col items-center p-6 rounded-2xl ${glassEffect} ${borderEffect} ${shadowEffect} cursor-pointer ${item.bg}`}
           >
-            {item.icon}
-            <p className="text-white mt-2">{item.label}</p>
+            <div className="p-3 rounded-xl bg-white/30 dark:bg-black/20 backdrop-blur-sm">
+              {item.icon}
+            </div>
+            <p className="text-white dark:text-gray-100 mt-3 font-medium text-sm">{item.label}</p>
           </motion.div>
         ))}
       </div>
@@ -135,12 +173,12 @@ const DesktopItems = ({ isStartMenuOpen, setShowModal, setGame, setMusicOpen, se
             whileHover="hover"
             whileTap="tap"
             onClick={item.action}
-            className={`flex flex-col items-center p-2 rounded-xl ${glassEffect} ${borderEffect} ${shadowEffect} cursor-pointer`}
+            className={`flex flex-col items-center p-3 rounded-xl ${glassEffect} ${borderEffect} ${shadowEffect} cursor-pointer ${item.bg}`}
           >
-            <div className="w-14 h-14 flex items-center justify-center">
-              {React.cloneElement(item.icon, { size: 36 })}
+            <div className="w-12 h-12 flex items-center justify-center p-2 rounded-lg bg-white/30 dark:bg-black/20 backdrop-blur-sm">
+              {React.cloneElement(item.icon, { size: 28 })}
             </div>
-            <p className="text-white text-xs mt-1">{item.label}</p>
+            <p className="text-white dark:text-gray-100 text-xs mt-2 font-medium">{item.label}</p>
           </motion.div>
         ))}
       </div>
