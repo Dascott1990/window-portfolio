@@ -3,12 +3,12 @@ import { FcFolder } from "react-icons/fc";
 import { VscGithubInverted } from "react-icons/vsc";
 import Link from "next/link";
 import { BiSolidFilePdf } from "react-icons/bi";
-import { FaGamepad, FaRegMoon, FaRegSun } from "react-icons/fa";
+import { FaGamepad, FaRegMoon, FaRegSun, FaMusic, FaMapMarkerAlt } from "react-icons/fa";
 import { MdEmail } from "react-icons/md";
 import { motion } from "framer-motion";
 import "react-toastify/dist/ReactToastify.css";
 
-const DesktopItems = ({ isStartMenuOpen, setShowModal, setGame }) => {
+const DesktopItems = ({ isStartMenuOpen, setShowModal, setGame, setMusicOpen, setMapOpen }) => {
   const [darkMode, setDarkMode] = React.useState(false);
 
   React.useEffect(() => {
@@ -119,6 +119,38 @@ const DesktopItems = ({ isStartMenuOpen, setShowModal, setGame }) => {
         >
           <FaGamepad className="text-green-500 text-6xl" />
           <p className="text-white text-center">Game</p>
+        </motion.div>
+
+        {/* Music */}
+        <motion.div
+          variants={iconAnimation}
+          whileHover="hover"
+          whileTap="tap"
+          onClick={() => {
+            setMusicOpen(true);
+            const audio = new Audio("click.wav");
+            audio.play();
+          }}
+          className={`flex flex-col items-center justify-center rounded-md transition-all duration-200 hover:shadow-xl hover:bg-slate-900/50 hover:cursor-pointer ${glassEffect} ${borderEffect} ${shadowEffect}`}
+        >
+          <FaMusic className="text-purple-500 text-6xl" />
+          <p className="text-white text-center">Music</p>
+        </motion.div>
+
+        {/* Map */}
+        <motion.div
+          variants={iconAnimation}
+          whileHover="hover"
+          whileTap="tap"
+          onClick={() => {
+            setMapOpen(true);
+            const audio = new Audio("click.wav");
+            audio.play();
+          }}
+          className={`flex flex-col items-center justify-center rounded-md transition-all duration-200 hover:shadow-xl hover:bg-slate-900/50 hover:cursor-pointer ${glassEffect} ${borderEffect} ${shadowEffect}`}
+        >
+          <FaMapMarkerAlt className="text-red-500 text-6xl" />
+          <p className="text-white text-center">Map</p>
         </motion.div>
 
         {/* Email */}

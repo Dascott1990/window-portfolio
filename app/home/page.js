@@ -8,6 +8,8 @@ import Experience from "../components/Experience";
 import Projects from "../components/Projects";
 import Menu from "../components/Menu";
 import Taskbar from "../components/Taskbar";
+import MusicApp from "../components/MusicApp";
+import MapApp from "../components/MapApp";
 
 const Page = () => {
   const [screenWidth, setScreenWidth] = useState(null);
@@ -21,6 +23,8 @@ const Page = () => {
   const [click, isClick] = useState(false);
   const [info, setInfo] = useState(false);
   const [game, setGame] = useState(false);
+  const [musicOpen, setMusicOpen] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
 
   useEffect(() => {
     const updateScreenWidth = () => {
@@ -42,12 +46,16 @@ const Page = () => {
         isStartMenuOpen={isStartMenuOpen}
         setShowModal={setShowModal}
         setGame={setGame}
+        setMusicOpen={setMusicOpen}
+        setMapOpen={setMapOpen}
       />
       <Game game={game} setGame={setGame} />
       <Education education={education} setEducation={setEducation} />
       <Impact impact={impact} setImpact={setImpact} />
       <Experience experience={experience} setexperience={setexperience} />
       <Projects showModal={showModal} setShowModal={setShowModal} />
+      <MusicApp musicOpen={musicOpen} setMusicOpen={setMusicOpen} />
+      <MapApp mapOpen={mapOpen} setMapOpen={setMapOpen} />
       <Menu
         isStartMenuOpen={isStartMenuOpen}
         setShowModal={setShowModal}
