@@ -14,7 +14,7 @@ A functional desktop environment replicating Windows UI paradigms in the browser
 Targets 100% compatibility with modern browsers while consuming <150KB of initial JS.
 
 ## Live Demo
-[Production Deployment](https://window-portfolio.vercel.app/welcome)
+[Production Deployment](https://windowportfolio-five.vercel.app/welcome)
 
 ## Tech Stack
 - **Core**: React 18 + Next.js 14 (App Router)
@@ -57,5 +57,5 @@ npm run build && npm start
 \`\`\`
 
 ## License
-MIT © 2024 Dascott
+MIT © 2025 Dascott
 See [LICENSE](LICENSE) for details.
