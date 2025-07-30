@@ -2,15 +2,31 @@ import React, { useState, useEffect } from "react";
 import { FcFolder } from "react-icons/fc";
 import { VscGithubInverted } from "react-icons/vsc";
 import { BiSolidFilePdf } from "react-icons/bi";
-import { FaGamepad, FaRegMoon, FaRegSun, FaMusic, FaMapMarkerAlt } from "react-icons/fa";
-import { MdEmail } from "react-icons/md";
-import { motion, useMotionValue } from "framer-motion";
+import { 
+  FaGamepad, 
+  FaRegMoon, 
+  FaRegSun, 
+  FaMusic, 
+  FaMapMarkerAlt,
+  FaCalendarAlt, // Added this import
+  FaHeartbeat    // Added this import
+} from "react-icons/fa";
+import { MdEmail, MdHealthAndSafety } from "react-icons/md";
+import { motion, useMotionValue, AnimatePresence } from "framer-motion";
+import Calendar from "./premium/Calendar";
+import Health from "./premium/Health";
 
 const DesktopItems = ({ isStartMenuOpen, setShowModal, setGame, setMusicOpen, setMapOpen }) => {
   const [darkMode, setDarkMode] = useState(false);
   const [time, setTime] = useState(new Date());
   const [weather, setWeather] = useState({ temp: '--°', condition: '--' });
   const [togglePosition, setTogglePosition] = useState({ x: 0, y: 0 });
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [showHealth, setShowHealth] = useState(false);
+  const [windowSize, setWindowSize] = useState({
+    width: typeof window !== 'undefined' ? window.innerWidth : 0,
+    height: typeof window !== 'undefined' ? window.innerHeight : 0
+  });
 
   // Load saved position from localStorage
   useEffect(() => {
@@ -18,6 +34,19 @@ const DesktopItems = ({ isStartMenuOpen, setShowModal, setGame, setMusicOpen, se
     if (savedPosition) {
       setTogglePosition(JSON.parse(savedPosition));
     }
+  }, []);
+
+  // Handle window resize for draggable constraints
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowSize({
+        width: window.innerWidth,
+        height: window.innerHeight
+      });
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   const x = useMotionValue(togglePosition.x);
@@ -66,53 +95,65 @@ const DesktopItems = ({ isStartMenuOpen, setShowModal, setGame, setMusicOpen, se
     tap: { scale: 0.95 },
   };
 
-const glassEffect = "backdrop-blur-sm bg-white/30 dark:bg-gray-900/10";
-const borderEffect = "border border-white/30 dark:border-gray-800/20";
-const shadowEffect = "shadow-md shadow-black/10 hover:shadow-lg hover:shadow-black/20";
+  const glassEffect = "backdrop-blur-sm bg-white/30 dark:bg-gray-900/10";
+  const borderEffect = "border border-white/30 dark:border-gray-800/20";
+  const shadowEffect = "shadow-lg shadow-black/30 hover:shadow-xl hover:shadow-black/40";
 
   // Enhanced icons with consistent styling
   const icons = [
     { 
-      icon: <FcFolder size={48} className="drop-shadow-md" />, 
+      icon: <FcFolder size={48} className="drop-shadow-lg" />, 
       label: "Projects", 
       action: () => { playSound(); setShowModal(true); },
       bg: "bg-blue-100/20"
     },
     { 
-      icon: <VscGithubInverted size={48} className="text-gray-800 dark:text-gray-100 drop-shadow-md" />, 
+      icon: <VscGithubInverted size={48} className="text-gray-800 dark:text-gray-100 drop-shadow-lg" />, 
       label: "Github", 
       action: () => { playSound(); window.open("https://github.com/dascott1990", "_blank"); },
       bg: "bg-gray-800/20 dark:bg-gray-100/20"
     },
     { 
-      icon: <BiSolidFilePdf size={48} className="text-red-500 drop-shadow-md" />, 
+      icon: <BiSolidFilePdf size={48} className="text-red-500 drop-shadow-lg" />, 
       label: "Resume", 
       action: () => { playSound(); window.open("https://drive.google.com/file/d/1tYMVwL4xGvdwlP4xn8UC8K24gz0PrS6F/view?usp=drive_link", "_blank"); },
       bg: "bg-red-500/20"
     },
     { 
-      icon: <FaGamepad size={48} className="text-green-500 drop-shadow-md" />, 
+      icon: <FaGamepad size={48} className="text-green-500 drop-shadow-lg" />, 
       label: "Game", 
       action: () => { playSound(); setGame(true); },
       bg: "bg-green-500/20"
     },
     { 
-      icon: <FaMusic size={48} className="text-purple-500 drop-shadow-md" />, 
+      icon: <FaMusic size={48} className="text-purple-500 drop-shadow-lg" />, 
       label: "Music", 
       action: () => { playSound(); setMusicOpen(true); },
       bg: "bg-purple-500/20"
     },
     { 
-      icon: <FaMapMarkerAlt size={48} className="text-red-400 drop-shadow-md" />, 
+      icon: <FaMapMarkerAlt size={48} className="text-red-400 drop-shadow-lg" />, 
       label: "Map", 
       action: () => { playSound(); setMapOpen(true); },
       bg: "bg-red-400/20"
     },
     { 
-      icon: <MdEmail size={48} className="text-blue-400 drop-shadow-md" />, 
+      icon: <MdEmail size={48} className="text-blue-400 drop-shadow-lg" />, 
       label: "Contact", 
       action: () => { playSound(); window.location.href = "mailto:dascottblog@gmail.com"; },
       bg: "bg-blue-400/20"
+    },
+    { 
+      icon: <FaCalendarAlt size={48} className="text-yellow-500 drop-shadow-lg" />, 
+      label: "Calendar", 
+      action: () => { playSound(); setShowCalendar(true); },
+      bg: "bg-yellow-500/20"
+    },
+    { 
+      icon: <MdHealthAndSafety size={48} className="text-pink-500 drop-shadow-lg" />, 
+      label: "Health", 
+      action: () => { playSound(); setShowHealth(true); },
+      bg: "bg-pink-500/20"
     }
   ];
 
@@ -145,7 +186,7 @@ const shadowEffect = "shadow-md shadow-black/10 hover:shadow-lg hover:shadow-bla
         </div>
       </div>
 
-      {/* Desktop Layouts */}
+      {/* Desktop Layout */}
       <div className="hidden md:grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 p-8">
         {icons.map((item, index) => (
           <motion.div
@@ -183,14 +224,20 @@ const shadowEffect = "shadow-md shadow-black/10 hover:shadow-lg hover:shadow-bla
         ))}
       </div>
 
-      {/* Draggable Dark Mode Toggle */}
+      {/* Premium Components */}
+      <AnimatePresence>
+        {showCalendar && <Calendar onClose={() => setShowCalendar(false)} />}
+        {showHealth && <Health onClose={() => setShowHealth(false)} />}
+      </AnimatePresence>
+
+      {/* Enhanced Dark Mode Toggle */}
       <motion.button
         drag
         dragConstraints={{
           top: 0,
           left: 0,
-          right: typeof window !== 'undefined' ? window.innerWidth - 48 : 0,
-          bottom: typeof window !== 'undefined' ? window.innerHeight - 48 : 0,
+          right: windowSize.width - 48,
+          bottom: windowSize.height - 48,
         }}
         dragElastic={0.1}
         onDragEnd={handleDragEnd}
@@ -201,7 +248,7 @@ const shadowEffect = "shadow-md shadow-black/10 hover:shadow-lg hover:shadow-bla
           setDarkMode(!darkMode);
           playSound();
         }}
-        className={`fixed p-3 rounded-full ${glassEffect} ${borderEffect} ${shadowEffect} z-50 cursor-grab active:cursor-grabbing`}
+        className={`fixed p-3 rounded-full ${glassEffect} ${borderEffect} shadow-[0_0_60px_rgba(0,0,0,0.7)] hover:shadow-[0_0_100px_rgba(0,0,0,0.8)] z-50 cursor-grab active:cursor-grabbing`}
         aria-label="Toggle dark mode"
         initial={togglePosition}
       >
