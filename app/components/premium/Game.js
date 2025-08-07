@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { MdOutlineClose } from "react-icons/md";
-import AnimatedItem from "../components/AnimatedItem";
+import AnimatedItem from "../AnimatedItem";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 

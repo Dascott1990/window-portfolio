@@ -1,14 +1,14 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import DesktopItems from "../components/DesktopItems";
-import Game from "../components/Game";
+import Game from "../components/premium/Game";
 import Education from "../components/Education";
 import Impact from "../components/Impact";
 import Experience from "../components/Experience";
 import Projects from "../components/Projects";
 import Menu from "../components/Menu";
 import Taskbar from "../components/Taskbar";
-import MusicApp from "../components/MusicApp";
+import MusicApp from "../components/premium/MusicApp";
 import MapApp from "../components/MapApp";
 
 const Page = () => {
