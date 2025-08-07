@@ -20,7 +20,7 @@ import Health from "./premium/Health";
 import ProjectAI from "./premium/ProjectAI";
 import Camera from "./premium/Camera";
 
-const DesktopItems = ({ isStartMenuOpen, setGame, setMusicOpen, setMapOpen }) => {
+const DesktopItems = ({ isStartMenuOpen, setGame, setMusicOpen, setMapOpen, setShowModal }) => {
   const [darkMode, setDarkMode] = useState(false);
   const [time, setTime] = useState(new Date());
   const [weather, setWeather] = useState({ temp: '--°', condition: '--' });
@@ -92,18 +92,20 @@ const DesktopItems = ({ isStartMenuOpen, setGame, setMusicOpen, setMapOpen }) =>
   const shadowEffect = "shadow-lg shadow-black/30 hover:shadow-xl hover:shadow-black/40";
 
   const icons = [
+{ 
+      icon: <FcFolder size={48} className="drop-shadow-lg" />, 
+      label: "Projects", 
+      action: () => { playSound(); setShowModal(true); },
+      bg: "bg-blue-100/20"
+    },
+
     { 
       icon: <FaRobot size={48} className="text-indigo-500 drop-shadow-lg" />, 
       label: "Project AI", 
       action: () => { playSound(); setShowAI(true); },
       bg: "bg-indigo-500/20"
     },
-    { 
-      icon: <FcFolder size={48} className="drop-shadow-lg" />, 
-      label: "Projects", 
-      action: () => { playSound(); /* Your projects action here */ },
-      bg: "bg-blue-100/20"
-    },
+    
     { 
       icon: <VscGithubInverted size={48} className="text-gray-800 dark:text-gray-100 drop-shadow-lg" />, 
       label: "Github", 
@@ -268,3 +270,4 @@ const DesktopItems = ({ isStartMenuOpen, setGame, setMusicOpen, setMapOpen }) =>
 };
 
 export default DesktopItems;
+
