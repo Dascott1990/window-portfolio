@@ -8,35 +8,41 @@ import {
   FaRegSun, 
   FaMusic, 
   FaMapMarkerAlt,
-  FaCalendarAlt, // Added this import
-  FaHeartbeat    // Added this import
+  FaCalendarAlt,
+  FaHeartbeat,
+  FaRobot,
+  FaCamera
 } from "react-icons/fa";
 import { MdEmail, MdHealthAndSafety } from "react-icons/md";
 import { motion, useMotionValue, AnimatePresence } from "framer-motion";
 import Calendar from "./premium/Calendar";
 import Health from "./premium/Health";
+import ProjectAI from "./premium/ProjectAI";
+import Camera from "./premium/Camera";
 
-const DesktopItems = ({ isStartMenuOpen, setShowModal, setGame, setMusicOpen, setMapOpen }) => {
+const DesktopItems = ({ isStartMenuOpen, setGame, setMusicOpen, setMapOpen }) => {
   const [darkMode, setDarkMode] = useState(false);
   const [time, setTime] = useState(new Date());
   const [weather, setWeather] = useState({ temp: '--°', condition: '--' });
   const [togglePosition, setTogglePosition] = useState({ x: 0, y: 0 });
   const [showCalendar, setShowCalendar] = useState(false);
   const [showHealth, setShowHealth] = useState(false);
+  const [showAI, setShowAI] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
   const [windowSize, setWindowSize] = useState({
     width: typeof window !== 'undefined' ? window.innerWidth : 0,
     height: typeof window !== 'undefined' ? window.innerHeight : 0
   });
 
-  // Load saved position from localStorage
+  // Load saved position and dark mode from localStorage
   useEffect(() => {
     const savedPosition = localStorage.getItem('togglePosition');
-    if (savedPosition) {
-      setTogglePosition(JSON.parse(savedPosition));
-    }
+    const savedDarkMode = localStorage.getItem('darkMode') === 'true';
+    
+    if (savedPosition) setTogglePosition(JSON.parse(savedPosition));
+    if (savedDarkMode) setDarkMode(savedDarkMode);
   }, []);
 
-  // Handle window resize for draggable constraints
   useEffect(() => {
     const handleResize = () => {
       setWindowSize({
@@ -60,6 +66,7 @@ const DesktopItems = ({ isStartMenuOpen, setShowModal, setGame, setMusicOpen, se
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
+    localStorage.setItem('darkMode', darkMode);
   }, [darkMode]);
 
   useEffect(() => {
@@ -67,28 +74,13 @@ const DesktopItems = ({ isStartMenuOpen, setShowModal, setGame, setMusicOpen, se
     return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    const fetchWeather = async () => {
-      try {
-        const response = await fetch(
-          `https://api.openweathermap.org/data/2.5/weather?q=San%20Francisco&units=metric&appid=${process.env.NEXT_PUBLIC_WEATHER_API_KEY}`
-        );
-        const data = await response.json();
-        setWeather({
-          temp: `${Math.round(data.main.temp)}°C`,
-          condition: data.weather[0].main
-        });
-      } catch (error) {
-        console.error("Weather API error:", error);
-      }
-    };
-    
-    fetchWeather();
-    const weatherInterval = setInterval(fetchWeather, 600000);
-    return () => clearInterval(weatherInterval);
-  }, []);
-
-  const playSound = () => new Audio("click.wav").play();
+  const playSound = () => {
+    try {
+      new Audio("/click.wav").play();
+    } catch (e) {
+      console.log("Sound error:", e);
+    }
+  };
 
   const iconAnimation = {
     hover: { scale: 1.05, y: -2 },
@@ -99,12 +91,17 @@ const DesktopItems = ({ isStartMenuOpen, setShowModal, setGame, setMusicOpen, se
   const borderEffect = "border border-white/30 dark:border-gray-800/20";
   const shadowEffect = "shadow-lg shadow-black/30 hover:shadow-xl hover:shadow-black/40";
 
-  // Enhanced icons with consistent styling
   const icons = [
+    { 
+      icon: <FaRobot size={48} className="text-indigo-500 drop-shadow-lg" />, 
+      label: "Project AI", 
+      action: () => { playSound(); setShowAI(true); },
+      bg: "bg-indigo-500/20"
+    },
     { 
       icon: <FcFolder size={48} className="drop-shadow-lg" />, 
       label: "Projects", 
-      action: () => { playSound(); setShowModal(true); },
+      action: () => { playSound(); /* Your projects action here */ },
       bg: "bg-blue-100/20"
     },
     { 
@@ -154,6 +151,12 @@ const DesktopItems = ({ isStartMenuOpen, setShowModal, setGame, setMusicOpen, se
       label: "Health", 
       action: () => { playSound(); setShowHealth(true); },
       bg: "bg-pink-500/20"
+    },
+    { 
+      icon: <FaCamera size={48} className="text-cyan-500 drop-shadow-lg" />, 
+      label: "Camera", 
+      action: () => { playSound(); setShowCamera(true); },
+      bg: "bg-cyan-500/20"
     }
   ];
 
@@ -228,6 +231,8 @@ const DesktopItems = ({ isStartMenuOpen, setShowModal, setGame, setMusicOpen, se
       <AnimatePresence>
         {showCalendar && <Calendar onClose={() => setShowCalendar(false)} />}
         {showHealth && <Health onClose={() => setShowHealth(false)} />}
+        {showAI && <ProjectAI onClose={() => setShowAI(false)} />}
+        {showCamera && <Camera onClose={() => setShowCamera(false)} />}
       </AnimatePresence>
 
       {/* Enhanced Dark Mode Toggle */}
