@@ -11,7 +11,8 @@ import {
   FaCalendarAlt,
   FaHeartbeat,
   FaRobot,
-  FaCamera
+  FaCamera,
+  FaChartLine
 } from "react-icons/fa";
 import { MdEmail, MdHealthAndSafety } from "react-icons/md";
 import { motion, useMotionValue, AnimatePresence } from "framer-motion";
@@ -19,6 +20,7 @@ import Calendar from "./premium/Calendar";
 import Health from "./premium/Health";
 import ProjectAI from "./premium/ProjectAI";
 import Camera from "./premium/Camera";
+import AssetNews from './premium/AssetNews';
 
 const DesktopItems = ({ isStartMenuOpen, setGame, setMusicOpen, setMapOpen, setShowModal }) => {
   const [darkMode, setDarkMode] = useState(false);
@@ -29,6 +31,7 @@ const DesktopItems = ({ isStartMenuOpen, setGame, setMusicOpen, setMapOpen, setS
   const [showHealth, setShowHealth] = useState(false);
   const [showAI, setShowAI] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
+  const [showAssetNews, setShowAssetNews] = useState(false);
   const [windowSize, setWindowSize] = useState({
     width: typeof window !== 'undefined' ? window.innerWidth : 0,
     height: typeof window !== 'undefined' ? window.innerHeight : 0
@@ -92,20 +95,18 @@ const DesktopItems = ({ isStartMenuOpen, setGame, setMusicOpen, setMapOpen, setS
   const shadowEffect = "shadow-lg shadow-black/30 hover:shadow-xl hover:shadow-black/40";
 
   const icons = [
-{ 
+    { 
       icon: <FcFolder size={48} className="drop-shadow-lg" />, 
       label: "Projects", 
       action: () => { playSound(); setShowModal(true); },
       bg: "bg-blue-100/20"
     },
-
     { 
       icon: <FaRobot size={48} className="text-indigo-500 drop-shadow-lg" />, 
       label: "Project AI", 
       action: () => { playSound(); setShowAI(true); },
       bg: "bg-indigo-500/20"
     },
-    
     { 
       icon: <VscGithubInverted size={48} className="text-gray-800 dark:text-gray-100 drop-shadow-lg" />, 
       label: "Github", 
@@ -159,6 +160,12 @@ const DesktopItems = ({ isStartMenuOpen, setGame, setMusicOpen, setMapOpen, setS
       label: "Camera", 
       action: () => { playSound(); setShowCamera(true); },
       bg: "bg-cyan-500/20"
+    },
+    { 
+      icon: <FaChartLine size={48} className="text-teal-500 drop-shadow-lg" />, 
+      label: "Asset News", 
+      action: () => { playSound(); setShowAssetNews(true); },
+      bg: "bg-teal-500/20"
     }
   ];
 
@@ -235,6 +242,14 @@ const DesktopItems = ({ isStartMenuOpen, setGame, setMusicOpen, setMapOpen, setS
         {showHealth && <Health onClose={() => setShowHealth(false)} />}
         {showAI && <ProjectAI onClose={() => setShowAI(false)} />}
         {showCamera && <Camera onClose={() => setShowCamera(false)} />}
+        {showAssetNews && (
+          <AssetNews 
+            onClose={() => setShowAssetNews(false)}
+            glassEffect={glassEffect}
+            borderEffect={borderEffect}
+            shadowEffect={shadowEffect}
+          />
+        )}
       </AnimatePresence>
 
       {/* Enhanced Dark Mode Toggle */}
@@ -270,4 +285,3 @@ const DesktopItems = ({ isStartMenuOpen, setGame, setMusicOpen, setMapOpen, setS
 };
 
 export default DesktopItems;
-
