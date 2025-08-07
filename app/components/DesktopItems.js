@@ -163,7 +163,7 @@ const DesktopItems = ({ isStartMenuOpen, setGame, setMusicOpen, setMapOpen, setS
     },
     { 
       icon: <FaChartLine size={48} className="text-teal-500 drop-shadow-lg" />, 
-      label: "Asset News", 
+      label: "Assets", 
       action: () => { playSound(); setShowAssetNews(true); },
       bg: "bg-teal-500/20"
     }
