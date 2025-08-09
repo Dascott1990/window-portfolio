@@ -15,19 +15,6 @@ function debounce(func, wait) {
   };
 }
 
-// SVG Icons as fallback
-const LocationIcon = ({ className = "" }) => (
-  <svg className={`w-5 h-5 ${className}`} fill="currentColor" viewBox="0 0 20 20">
-    <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
-  </svg>
-);
-
-const FullscreenIcon = ({ className = "" }) => (
-  <svg className={`w-5 h-5 ${className}`} fill="currentColor" viewBox="0 0 20 20">
-    <path fillRule="evenodd" d="M3 4a1 1 0 011-1h4a1 1 0 010 2H6.414l2.293 2.293a1 1 0 01-1.414 1.414L5 6.414V8a1 1 0 01-2 0V4zm9 1a1 1 0 010-2h4a1 1 0 011 1v4a1 1 0 01-2 0V6.414l-2.293 2.293a1 1 0 11-1.414-1.414L13.586 5H12zm-9 7a1 1 0 012 0v1.586l2.293-2.293a1 1 0 111.414 1.414L6.414 15H8a1 1 0 010 2H4a1 1 0 01-1-1v-4zm13-1a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 010-2h1.586l-2.293-2.293a1 1 0 111.414-1.414L15 13.586V12a1 1 0 011-1z" clipRule="evenodd" />
-  </svg>
-);
-
 const Map = dynamic(() => import("./MapComponent"), {
   ssr: false,
   loading: () => (
@@ -183,6 +170,25 @@ const MapApp = ({ mapOpen, setMapOpen }) => {
         } backdrop-blur-lg border ${
           darkMode ? 'border-gray-700/50' : 'border-gray-200/50'
         } shadow-2xl`}>
+          
+          {/* Close Button - Adjusted with better spacing */}
+          <button
+            onClick={handleClose}
+            className={`absolute top-4 right-4 z-50 p-3 rounded-full ${
+              darkMode ? 'bg-gray-800/90 hover:bg-gray-700/90' : 'bg-white/90 hover:bg-gray-200/90'
+            } backdrop-blur-md shadow-lg border ${
+              darkMode ? 'border-gray-700/30' : 'border-gray-200/30'
+            } transition-colors`}
+            style={{
+              width: '44px',
+              height: '44px',
+              margin: '12px' // Added margin for better spacing
+              
+            }}
+          >
+            <IoMdClose className={`text-xl ${darkMode ? 'text-gray-300' : 'text-gray-700'}`} />
+          </button>
+
           <div className="flex-1 relative overflow-hidden">
             <Map
               darkMode={darkMode}
@@ -191,6 +197,7 @@ const MapApp = ({ mapOpen, setMapOpen }) => {
               onMapReady={handleMapReady}
             />
 
+            {/* Rest of your existing code remains exactly the same */}
             <div className="absolute top-4 left-0 right-0 flex justify-center px-4 pointer-events-none">
               <div className={`flex items-center justify-between w-full max-w-4xl ${
                 darkMode ? 'bg-gray-800/80' : 'bg-white/80'
@@ -361,9 +368,13 @@ const MapApp = ({ mapOpen, setMapOpen }) => {
                 } transition-colors`}
               >
                 {isFullscreen ? (
-                  <FullscreenIcon className={darkMode ? 'text-gray-300' : 'text-gray-700'} />
+                  <svg className={`w-5 h-5 mx-auto ${darkMode ? 'text-gray-300' : 'text-gray-700'}`} fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M3 7a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 6a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                  </svg>
                 ) : (
-                  <FullscreenIcon className={darkMode ? 'text-gray-300' : 'text-gray-700'} />
+                  <svg className={`w-5 h-5 mx-auto ${darkMode ? 'text-gray-300' : 'text-gray-700'}`} fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M3 4a1 1 0 011-1h4a1 1 0 010 2H6.414l2.293 2.293a1 1 0 01-1.414 1.414L5 6.414V8a1 1 0 01-2 0V4zm9 1a1 1 0 010-2h4a1 1 0 011 1v4a1 1 0 01-2 0V6.414l-2.293 2.293a1 1 0 11-1.414-1.414L13.586 5H12zm-9 7a1 1 0 012 0v1.586l2.293-2.293a1 1 0 111.414 1.414L6.414 15H8a1 1 0 010 2H4a1 1 0 01-1-1v-4zm13-1a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 010-2h1.586l-2.293-2.293a1 1 0 111.414-1.414L15 13.586V12a1 1 0 011-1z" clipRule="evenodd" />
+                  </svg>
                 )}
               </button>
             </div>
@@ -410,19 +421,6 @@ const MapApp = ({ mapOpen, setMapOpen }) => {
                 </motion.div>
               )}
             </AnimatePresence>
-
-            <button
-              onClick={handleClose}
-              className={`absolute top-4 right-4 p-2 rounded-full ${
-                darkMode ? 'bg-gray-800/80 hover:bg-gray-700/80' : 'bg-white/80 hover:bg-gray-200/80'
-              } backdrop-blur-md shadow-lg border ${
-                darkMode ? 'border-gray-700/30' : 'border-gray-200/30'
-              } transition-colors`}
-            >
-              <IoMdClose className={`text-xl ${
-                darkMode ? 'text-gray-300' : 'text-gray-700'
-              }`} />
-            </button>
           </div>
         </div>
       </motion.div>
