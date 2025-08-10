@@ -21,6 +21,8 @@ import Health from "./premium/Health";
 import ProjectAI from "./premium/ProjectAI";
 import Camera from "./premium/Camera";
 import AssetNews from './premium/AssetNews';
+import Contact from "./premium/Contact";
+import Resume from "./premium/Resume";
 
 const DesktopItems = ({ isStartMenuOpen, setGame, setMusicOpen, setMapOpen, setShowModal }) => {
   const [darkMode, setDarkMode] = useState(false);
@@ -30,8 +32,10 @@ const DesktopItems = ({ isStartMenuOpen, setGame, setMusicOpen, setMapOpen, setS
   const [showCalendar, setShowCalendar] = useState(false);
   const [showHealth, setShowHealth] = useState(false);
   const [showAI, setShowAI] = useState(false);
+  const [showResume, setShowResume] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [showAssetNews, setShowAssetNews] = useState(false);
+  const [showContact, setShowContact] = useState(false);
   const [windowSize, setWindowSize] = useState({
     width: typeof window !== 'undefined' ? window.innerWidth : 0,
     height: typeof window !== 'undefined' ? window.innerHeight : 0
@@ -114,11 +118,11 @@ const DesktopItems = ({ isStartMenuOpen, setGame, setMusicOpen, setMapOpen, setS
       bg: "bg-gray-800/20 dark:bg-gray-100/20"
     },
     { 
-      icon: <BiSolidFilePdf size={48} className="text-red-500 drop-shadow-lg" />, 
-      label: "Resume", 
-      action: () => { playSound(); window.open("https://drive.google.com/file/d/1tYMVwL4xGvdwlP4xn8UC8K24gz0PrS6F/view?usp=drive_link", "_blank"); },
-      bg: "bg-red-500/20"
-    },
+  icon: <BiSolidFilePdf size={48} className="text-red-500 drop-shadow-lg" />, 
+  label: "Resume", 
+  action: () => { playSound(); setShowResume(true); },
+  bg: "bg-red-500/20"
+},
     { 
       icon: <FaGamepad size={48} className="text-green-500 drop-shadow-lg" />, 
       label: "Game", 
@@ -140,7 +144,7 @@ const DesktopItems = ({ isStartMenuOpen, setGame, setMusicOpen, setMapOpen, setS
     { 
       icon: <MdEmail size={48} className="text-blue-400 drop-shadow-lg" />, 
       label: "Contact", 
-      action: () => { playSound(); window.location.href = "mailto:dascottblog@gmail.com"; },
+      action: () => { playSound(); setShowContact(true); },
       bg: "bg-blue-400/20"
     },
     { 
@@ -250,6 +254,8 @@ const DesktopItems = ({ isStartMenuOpen, setGame, setMusicOpen, setMapOpen, setS
             shadowEffect={shadowEffect}
           />
         )}
+        {showResume && <Resume onClose={() => setShowResume(false)} />}
+        {showContact && <Contact onClose={() => setShowContact(false)} />}
       </AnimatePresence>
 
       {/* Enhanced Dark Mode Toggle */}
