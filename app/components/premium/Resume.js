@@ -1,5 +1,6 @@
 // ./premium/Resume.js
 import React from "react";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { 
   FiDownload,
@@ -11,43 +12,60 @@ import {
   FiX
 } from "react-icons/fi";
 import { FaReact, FaNodeJs, FaPython } from "react-icons/fa";
-import { SiTypescript, SiTailwindcss, SiFramer } from "react-icons/si";
+import { SiTypescript, SiTailwindcss, SiFramer, SiPostgresql, SiDocker, SiAwsamplify } from "react-icons/si";
 
 const Resume = ({ onClose }) => {
   const skills = [
     { name: "React", icon: <FaReact className="text-blue-500" />, level: 90 },
     { name: "TypeScript", icon: <SiTypescript className="text-blue-600" />, level: 85 },
-    { name: "Node.js", icon: <FaNodeJs className="text-green-600" />, level: 80 },
+    { name: "Node.js", icon: <FaNodeJs className="text-green-600" />, level: 88 },
+    { name: "PostgreSQL", icon: <SiPostgresql className="text-indigo-600" />, level: 82 },
     { name: "Python", icon: <FaPython className="text-yellow-600" />, level: 75 },
     { name: "Tailwind CSS", icon: <SiTailwindcss className="text-cyan-400" />, level: 95 },
-    { name: "Framer Motion", icon: <SiFramer className="text-purple-500" />, level: 85 }
+    { name: "Framer Motion", icon: <SiFramer className="text-purple-500" />, level: 85 },
+    { name: "Docker", icon: <SiDocker className="text-blue-400" />, level: 80 },
+    { name: "AWS", icon: <SiAwsamplify className="text-orange-500" />, level: 78 }
   ];
 
   const experiences = [
     {
-      role: "Senior Frontend Developer",
-      company: "Tech Innovations Inc.",
+      role: "Founder & Lead Engineer",
+      company: "Dascott Global Ventures",
       period: "2020 - Present",
-      description: "Lead a team of 5 developers to build responsive web applications using React and TypeScript."
+      description:
+        "Founded and scaled a tech-driven real estate and smart homes company. Built digital infrastructure for property management, IoT smart home automation, and a gas distribution logistics system. Designed APIs, secure cloud deployments (AWS), and integrated full-stack apps for business operations."
     },
     {
-      role: "Frontend Developer",
-      company: "Digital Solutions LLC",
-      period: "2018 - 2020",
-      description: "Developed and maintained user interfaces for enterprise applications."
+      role: "Full-Stack Developer",
+      company: "Freelance / GitHub Projects",
+      period: "2018 - Present",
+      description:
+        "Developed numerous full-stack projects available on GitHub (github.com/dascott1990). Built RESTful and GraphQL APIs, authentication systems, real-time apps with WebSockets, and dashboards with React/Node/PostgreSQL. Focus on scalable and secure code."
+    },
+    {
+      role: "Cybersecurity Engineer (Intern)",
+      company: "Canadore College Labs",
+      period: "2024 - 2025",
+      description:
+        "Hands-on work in penetration testing, secure API design, and vulnerability assessments. Assisted in building security frameworks for student and institutional projects."
     }
   ];
 
   const education = [
     {
-      degree: "MSc Computer Science",
-      institution: "Stanford University",
-      period: "2016 - 2018"
+      degree: "Cybersecurity Program",
+      institution: "Canadore College",
+      period: "2024 - 2025"
     },
     {
-      degree: "BSc Software Engineering",
-      institution: "MIT",
-      period: "2012 - 2016"
+      degree: "Frontend Development",
+      institution: "AltSchool Africa",
+      period: "2022 - 2023"
+    },
+    {
+      degree: "Full-Stack Bootcamps (Web Dev, Python, iOS)",
+      institution: "Angela Yu Online Bootcamps",
+      period: "Ongoing"
     }
   ];
 
@@ -59,7 +77,7 @@ const Resume = ({ onClose }) => {
       exit={{ opacity: 0 }}
       transition={{ duration: 0.2 }}
     >
-      {/* Header with close button */}
+      {/* Header */}
       <div className="absolute top-0 left-0 right-0 z-20 flex justify-between items-center p-4 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
         <h1 className="text-xl font-semibold text-gray-800 dark:text-white">Resume</h1>
         <motion.button
@@ -73,53 +91,92 @@ const Resume = ({ onClose }) => {
         </motion.button>
       </div>
 
-      {/* Scrollable content container */}
+      {/* Content */}
       <div className="absolute inset-0 pt-16 pb-4 overflow-y-auto">
         <div className="flex flex-col md:flex-row min-h-full">
-          {/* Left Panel - Profile - Sticky on desktop */}
+          {/* Left Panel */}
           <motion.div 
             className="md:w-1/3 p-6 bg-gray-50 dark:bg-gray-800 md:sticky md:top-16 md:h-[calc(100vh-64px)] md:overflow-y-auto"
             initial={{ x: -20, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             transition={{ delay: 0.1 }}
           >
-            <div className="flex flex-col items-center mb-6">
-              <div className="w-32 h-32 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 mb-4 overflow-hidden">
-                <img 
-                  src="/profile.jpg" 
-                  alt="Profile" 
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    e.target.onerror = null;
-                    e.target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23ffffff'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z'/%3E%3C/svg%3E";
-                  }}
-                />
-              </div>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">David Scott</h2>
-              <p className="text-blue-500 dark:text-blue-400 font-medium">Senior Frontend Developer</p>
-              <p className="flex items-center text-gray-600 dark:text-gray-300 mt-2">
-                <FiMapPin className="mr-1" /> San Francisco, CA
-              </p>
-            </div>
+          <div className="flex flex-col items-center text-center mb-8">
+  <div className="w-40 h-40 relative rounded-full overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+    <Image
+      src="/img.jpeg"
+      alt="Rasheed Dascott"
+      layout="fill"
+      objectFit="cover"
+      className="rounded-full"
+    />
+  </div>
 
-            {/* Contact Info */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-3">Contact</h3>
-              <ul className="space-y-2">
-                <li className="flex items-center text-gray-600 dark:text-gray-300">
-                  <FiMail className="mr-2 text-blue-500" /> david.scott@example.com
-                </li>
-                <li className="flex items-center text-gray-600 dark:text-gray-300">
-                  <FiPhone className="mr-2 text-blue-500" /> (555) 123-4567
-                </li>
-                <li className="flex items-center text-gray-600 dark:text-gray-300">
-                  <FiLinkedin className="mr-2 text-blue-500" /> linkedin.com/in/davidscott
-                </li>
-                <li className="flex items-center text-gray-600 dark:text-gray-300">
-                  <FiGithub className="mr-2 text-blue-500" /> github.com/dascott1990
-                </li>
-              </ul>
-            </div>
+  <h1 className="mt-6 text-4xl font-extrabold tracking-tight text-gray-900 dark:text-white">
+    Rasheed Dascott
+  </h1>
+
+  <p className="text-lg text-gray-600 dark:text-gray-400 mt-2">
+    Full Stack Developer · Cybersecurity Engineer · Founder @ Dascott Global Ventures
+  </p>
+
+  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+    Toronto, ON, Canada
+  </p>
+</div>
+
+            {/* Contact */}
+<div className="mb-6">
+  <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">Contact</h3>
+  <ul className="space-y-3">
+    {/* Email */}
+    <li>
+      <a 
+        className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 rounded-xl shadow-[0_6px_20px_rgba(0,0,0,0.15)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.2)] transition-shadow text-gray-800 dark:text-white font-medium"
+      >
+        <FiMail className="text-blue-500 mr-3 text-xl" />
+        <span>Dascottblog@gmail.com</span>
+      </a>
+    </li>
+
+    {/* Phone */}
+    <li>
+      <a 
+        href="tel:+1(416)505-6927" 
+        className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 rounded-xl shadow-[0_6px_20px_rgba(0,0,0,0.15)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.2)] transition-shadow text-gray-800 dark:text-white font-medium"
+      >
+        <FiPhone className="text-blue-500 mr-3 text-xl" />
+        <span>+1 (705) 498-7684</span>
+      </a>
+    </li>
+
+    {/* LinkedIn */}
+    <li>
+      <a 
+        href="https://www.linkedin.com/in/rasheed-tajudeen-614606374" 
+        target="_blank" 
+        rel="noopener noreferrer"
+        className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 rounded-xl shadow-[0_6px_20px_rgba(0,0,0,0.15)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.2)] transition-shadow text-gray-800 dark:text-white font-medium"
+      >
+        <FiLinkedin className="text-blue-500 mr-3 text-xl" />
+        <span>LinkedIn</span>
+      </a>
+    </li>
+
+    {/* GitHub */}
+    <li>
+      <a 
+        href="https://github.com/dascott1990" 
+        target="_blank" 
+        rel="noopener noreferrer"
+        className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 rounded-xl shadow-[0_6px_20px_rgba(0,0,0,0.15)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.2)] transition-shadow text-gray-800 dark:text-white font-medium"
+      >
+        <FiGithub className="text-blue-500 mr-3 text-xl" />
+        <span>GitHub</span>
+      </a>
+    </li>
+  </ul>
+</div>
 
             {/* Skills */}
             <div>
@@ -135,10 +192,7 @@ const Resume = ({ onClose }) => {
                       <span className="text-sm text-gray-500">{skill.level}%</span>
                     </div>
                     <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                      <div 
-                        className="bg-gradient-to-r from-blue-400 to-purple-500 h-2 rounded-full" 
-                        style={{ width: `${skill.level}%` }}
-                      ></div>
+                      <div className="bg-gradient-to-r from-blue-400 to-purple-500 h-2 rounded-full" style={{ width: `${skill.level}%` }}></div>
                     </div>
                   </div>
                 ))}
@@ -146,7 +200,7 @@ const Resume = ({ onClose }) => {
             </div>
           </motion.div>
 
-          {/* Right Panel - Content */}
+          {/* Right Panel */}
           <motion.div 
             className="md:w-2/3 p-6"
             initial={{ x: 20, opacity: 0 }}
@@ -157,9 +211,7 @@ const Resume = ({ onClose }) => {
             <section className="mb-8">
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">About Me</h2>
               <p className="text-gray-600 dark:text-gray-300 leading-relaxed">
-                Passionate frontend developer with 6+ years of experience building responsive and accessible web applications. 
-                Specialized in React, TypeScript, and modern CSS frameworks. Strong advocate for clean code, 
-                performance optimization, and intuitive user experiences.
+                Full-stack developer and cybersecurity engineer with a passion for building secure, scalable, and user-friendly applications. Founder of Dascott Global Ventures, combining technology with real estate and smart-home innovation. Skilled in React, Node.js, PostgreSQL, cloud deployments, and security frameworks. Strong advocate for automation, clean code, and impactful digital transformation.
               </p>
             </section>
 
@@ -201,11 +253,11 @@ const Resume = ({ onClose }) => {
               </div>
             </section>
 
-            {/* Download Button - Sticky on mobile */}
+            {/* Download */}
             <div className="md:static fixed bottom-4 left-0 right-0 px-4 md:px-0 md:mt-8">
               <div className="md:flex justify-center">
                 <motion.a
-                  href="https://drive.google.com/file/d/1tYMVwL4xGvdwlP4xn8UC8K24gz0PrS6F/view?usp=drive_link"
+                  href="https://github.com/dascott1990"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center justify-center px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg shadow-md hover:shadow-lg transition-all w-full md:w-auto"
@@ -213,7 +265,7 @@ const Resume = ({ onClose }) => {
                   whileTap={{ scale: 0.98 }}
                 >
                   <FiDownload className="mr-2" />
-                  Download Resume
+                  View My Projects
                 </motion.a>
               </div>
             </div>
