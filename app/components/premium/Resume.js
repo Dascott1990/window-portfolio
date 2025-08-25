@@ -1,20 +1,23 @@
 // ./premium/Resume.js
-import React from "react";
+import React, { useState } from "react";
 import Image from "next/image";
 import { motion } from "framer-motion";
 import { 
-  FiDownload,
-  FiMail,
-  FiPhone,
-  FiMapPin,
-  FiLinkedin,
-  FiGithub,
-  FiX
+  FiDownload, FiMail, FiPhone, FiMapPin, FiLinkedin, FiGithub, FiX 
 } from "react-icons/fi";
 import { FaReact, FaNodeJs, FaPython } from "react-icons/fa";
 import { SiTypescript, SiTailwindcss, SiFramer, SiPostgresql, SiDocker, SiAwsamplify } from "react-icons/si";
 
 const Resume = ({ onClose }) => {
+  const [copied, setCopied] = useState(false);
+  const email = "dascottblog@gmail.com";
+
+  const handleCopyEmail = () => {
+    navigator.clipboard.writeText(email);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
   const skills = [
     { name: "React", icon: <FaReact className="text-blue-500" />, level: 90 },
     { name: "TypeScript", icon: <SiTypescript className="text-blue-600" />, level: 85 },
@@ -52,21 +55,9 @@ const Resume = ({ onClose }) => {
   ];
 
   const education = [
-    {
-      degree: "Cybersecurity Program",
-      institution: "Canadore College",
-      period: "2024 - 2025"
-    },
-    {
-      degree: "Frontend Development",
-      institution: "AltSchool Africa",
-      period: "2022 - 2023"
-    },
-    {
-      degree: "Full-Stack Bootcamps (Web Dev, Python, iOS)",
-      institution: "Angela Yu Online Bootcamps",
-      period: "2021 - 2024"
-    }
+    { degree: "Cybersecurity Program", institution: "Canadore College", period: "2024 - 2025" },
+    { degree: "Frontend Development", institution: "AltSchool Africa", period: "2022 - 2023" },
+    { degree: "Full-Stack Bootcamps (Web Dev, Python, iOS)", institution: "Angela Yu Online Bootcamps", period: "2021 - 2024" }
   ];
 
   return (
@@ -94,6 +85,7 @@ const Resume = ({ onClose }) => {
       {/* Content */}
       <div className="absolute inset-0 pt-16 pb-4 overflow-y-auto">
         <div className="flex flex-col md:flex-row min-h-full">
+
           {/* Left Panel */}
           <motion.div 
             className="md:w-1/3 p-6 bg-gray-50 dark:bg-gray-800 md:sticky md:top-16 md:h-[calc(100vh-64px)] md:overflow-y-auto"
@@ -101,82 +93,86 @@ const Resume = ({ onClose }) => {
             animate={{ x: 0, opacity: 1 }}
             transition={{ delay: 0.1 }}
           >
-          <div className="flex flex-col items-center text-center mb-8">
-  <div className="w-40 h-40 relative rounded-full overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
-    <Image
-      src="/img.jpeg"
-      alt="Rasheed Dascott"
-      layout="fill"
-      objectFit="cover"
-      className="rounded-full"
-    />
-  </div>
-
-  <h1 className="mt-6 text-4xl font-extrabold tracking-tight text-gray-900 dark:text-white">
-    Rasheed Dascott
-  </h1>
-
-  <p className="text-lg text-gray-600 dark:text-gray-400 mt-2">
-    Full Stack Developer · Cybersecurity Engineer · Founder @ Dascott Global Ventures
-  </p>
-
-  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-    Toronto, ON, Canada
-  </p>
-</div>
+            {/* Profile */}
+            <div className="flex flex-col items-center text-center mb-8">
+              <div className="w-40 h-40 relative rounded-full overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+                <Image
+                  src="/img.jpeg"
+                  alt="Rasheed Dascott"
+                  layout="fill"
+                  objectFit="cover"
+                  className="rounded-full"
+                />
+              </div>
+              <h1 className="mt-6 text-4xl font-extrabold tracking-tight text-gray-900 dark:text-white">
+                Rasheed Dascott
+              </h1>
+              <p className="text-lg text-gray-600 dark:text-gray-400 mt-2">
+                Full Stack Developer · Cybersecurity Engineer · Founder @ Dascott Global Ventures
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Toronto, ON, Canada
+              </p>
+            </div>
 
             {/* Contact */}
-<div className="mb-6">
-  <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">Contact</h3>
-  <ul className="space-y-3">
-    {/* Email */}
-    <li>
-      <a 
-        className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 rounded-xl shadow-[0_6px_20px_rgba(0,0,0,0.15)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.2)] transition-shadow text-gray-800 dark:text-white font-medium"
-      >
-        <FiMail className="text-blue-500 mr-3 text-xl" />
-        <span>Dascottblog@gmail.com</span>
-      </a>
-    </li>
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">Contact</h3>
+              <ul className="space-y-3">
+                {/* Email */}
+                <li>
+                  <button
+                    onClick={handleCopyEmail}
+                    className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 rounded-xl shadow-[0_6px_20px_rgba(0,0,0,0.15)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.2)] transition-shadow text-gray-800 dark:text-white font-medium relative w-full justify-start"
+                  >
+                    <FiMail className="text-blue-500 mr-3 text-xl" />
+                    <span>{email}</span>
+                    {copied && (
+                      <span className="absolute right-4 top-1/2 transform -translate-y-1/2 text-green-500 font-semibold text-sm">
+                        Copied!
+                      </span>
+                    )}
+                  </button>
+                </li>
 
-    {/* Phone */}
-    <li>
-      <a 
-        href="tel:+1(416)505-6927" 
-        className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 rounded-xl shadow-[0_6px_20px_rgba(0,0,0,0.15)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.2)] transition-shadow text-gray-800 dark:text-white font-medium"
-      >
-        <FiPhone className="text-blue-500 mr-3 text-xl" />
-        <span>+1 (705) 498-7684</span>
-      </a>
-    </li>
+                {/* Phone */}
+                <li>
+                  <a 
+                    href="tel:+17054987684" 
+                    className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 rounded-xl shadow-[0_6px_20px_rgba(0,0,0,0.15)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.2)] transition-shadow text-gray-800 dark:text-white font-medium"
+                  >
+                    <FiPhone className="text-blue-500 mr-3 text-xl" />
+                    <span>+1 (705) 498-7684</span>
+                  </a>
+                </li>
 
-    {/* LinkedIn */}
-    <li>
-      <a 
-        href="https://www.linkedin.com/in/rasheed-tajudeen-614606374" 
-        target="_blank" 
-        rel="noopener noreferrer"
-        className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 rounded-xl shadow-[0_6px_20px_rgba(0,0,0,0.15)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.2)] transition-shadow text-gray-800 dark:text-white font-medium"
-      >
-        <FiLinkedin className="text-blue-500 mr-3 text-xl" />
-        <span>LinkedIn</span>
-      </a>
-    </li>
+                {/* LinkedIn */}
+                <li>
+                  <a 
+                    href="https://www.linkedin.com/in/rasheed-tajudeen-614606374" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 rounded-xl shadow-[0_6px_20px_rgba(0,0,0,0.15)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.2)] transition-shadow text-gray-800 dark:text-white font-medium"
+                  >
+                    <FiLinkedin className="text-blue-500 mr-3 text-xl" />
+                    <span>LinkedIn</span>
+                  </a>
+                </li>
 
-    {/* GitHub */}
-    <li>
-      <a 
-        href="https://github.com/dascott1990" 
-        target="_blank" 
-        rel="noopener noreferrer"
-        className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 rounded-xl shadow-[0_6px_20px_rgba(0,0,0,0.15)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.2)] transition-shadow text-gray-800 dark:text-white font-medium"
-      >
-        <FiGithub className="text-blue-500 mr-3 text-xl" />
-        <span>GitHub</span>
-      </a>
-    </li>
-  </ul>
-</div>
+                {/* GitHub */}
+                <li>
+                  <a 
+                    href="https://github.com/dascott1990" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 rounded-xl shadow-[0_6px_20px_rgba(0,0,0,0.15)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.2)] transition-shadow text-gray-800 dark:text-white font-medium"
+                  >
+                    <FiGithub className="text-blue-500 mr-3 text-xl" />
+                    <span>GitHub</span>
+                  </a>
+                </li>
+              </ul>
+            </div>
 
             {/* Skills */}
             <div>
@@ -253,7 +249,7 @@ const Resume = ({ onClose }) => {
               </div>
             </section>
 
-            {/* Download */}
+            {/* Download / Projects */}
             <div className="md:static fixed bottom-4 left-0 right-0 px-4 md:px-0 md:mt-8">
               <div className="md:flex justify-center">
                 <motion.a
@@ -269,6 +265,7 @@ const Resume = ({ onClose }) => {
                 </motion.a>
               </div>
             </div>
+
           </motion.div>
         </div>
       </div>
