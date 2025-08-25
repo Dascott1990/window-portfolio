@@ -65,7 +65,7 @@ const Resume = ({ onClose }) => {
     {
       degree: "Full-Stack Bootcamps (Web Dev, Python, iOS)",
       institution: "Angela Yu Online Bootcamps",
-      period: "Ongoing"
+      period: "2021 - 2024"
     }
   ];
 
