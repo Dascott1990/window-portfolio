@@ -138,11 +138,11 @@ const Resume = ({ onClose }) => {
                 {/* Phone */}
                 <li>
                   <a 
-                    href="tel:+17054987684" 
+                    href="tel:+14165056927" 
                     className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 rounded-xl shadow-[0_6px_20px_rgba(0,0,0,0.15)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.2)] transition-shadow text-gray-800 dark:text-white font-medium"
                   >
                     <FiPhone className="text-blue-500 mr-3 text-xl" />
-                    <span>+1 (705) 498-7684</span>
+                    <span>+1 (416) 505-6927</span>
                   </a>
                 </li>
 
