@@ -1,55 +1,195 @@
-@import url('https://fonts.googleapis.com/css2?family=Barriecito&family=Rubik:wght@300;400;500&family=Handjet:wght@300;400&family=Rajdhani&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
 
+/* ─── Design Tokens ────────────────────────────────────────────── */
+:root {
+  /* Surfaces */
+  --surface-glass: rgba(255, 255, 255, 0.08);
+  --surface-glass-hover: rgba(255, 255, 255, 0.14);
+  --surface-dark: rgba(15, 17, 26, 0.92);
+  --surface-panel: rgba(22, 25, 38, 0.95);
 
-body{
-  font-family: 'Rubik', sans-serif;
-  font-feature-settings: "calt" 1;
+  /* Borders */
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-medium: rgba(255, 255, 255, 0.14);
+  --border-strong: rgba(255, 255, 255, 0.22);
+
+  /* Brand */
+  --blue-primary: #3b82f6;
+  --blue-glow: rgba(59, 130, 246, 0.3);
+
+  /* Typography */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-display: 'Rajdhani', sans-serif;
+
+  /* Shadows */
+  --shadow-window: 0 24px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.05);
+  --shadow-panel: 0 16px 48px rgba(0,0,0,0.5);
+  --shadow-tooltip: 0 4px 16px rgba(0,0,0,0.4);
+
+  /* Motion */
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out: cubic-bezier(0.0, 0, 0.2, 1);
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --duration-slow: 350ms;
+
+  /* Taskbar */
+  --taskbar-height: 52px;
+}
+
+/* ─── Base Resets ───────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
-.font-light {
-  font-weight: 200;
-}
 
-.font-regular {
+body {
+  font-family: var(--font-sans);
   font-weight: 400;
+  line-height: 1.5;
 }
 
-.font-medium {
-  font-weight: 500;
-}
+/* ─── Custom Scrollbar ──────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+::-webkit-scrollbar-track { background: transparent; }
 
-.font-bold {
-  font-weight: 600;
-}
+/* ─── Font Utilities ────────────────────────────────────────────── */
+.font-light    { font-weight: 300; }
+.font-regular  { font-weight: 400; }
+.font-medium   { font-weight: 500; }
+.font-semibold { font-weight: 600; }
+.font-bold     { font-weight: 700; }
+.font-mono     { font-family: var(--font-mono); }
+.font-display  { font-family: var(--font-display); }
 
-.font-extraBold {
-  font-weight: 700;
-}
-::-webkit-scrollbar {
-  width: 5px;
-}
-::-webkit-scrollbar-thumb {
-  background-color: #eee; 
-  border-radius: 10px;
-}
-::-webkit-scrollbar-track {
-  background-color: #999;
-  border-radius: 10px;
-}
-/* .booting{
-  background-image: url("/../4.jpg");
-  background-blend-mode: overlay;
-}
-.intro{
-  background-image: url("/../3.jpg");
-  background-blend-mode: overlay;
-} */
-.homepage{
-  background-image: url("/../2.jpg");
+/* ─── Homepage / Desktop background ────────────────────────────── */
+.homepage {
+  background-image: url("/2.jpg");
   background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
 }
 
+/* Booting screen */
+.booting {
+  background-image: url("/4.jpg");
+  background-size: cover;
+  background-position: center;
+}
+
+/* ─── Glass Morphism Utilities ──────────────────────────────────── */
+.glass {
+  backdrop-filter: blur(16px) saturate(1.5);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  background: var(--surface-glass);
+  border: 1px solid var(--border-subtle);
+}
+
+.glass-dark {
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  background: var(--surface-dark);
+  border: 1px solid var(--border-subtle);
+}
+
+.glass-panel {
+  backdrop-filter: blur(24px) saturate(2);
+  -webkit-backdrop-filter: blur(24px) saturate(2);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-medium);
+  box-shadow: var(--shadow-window);
+}
+
+/* ─── Window chrome ─────────────────────────────────────────────── */
+.window-chrome {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow-window);
+  border: 1px solid var(--border-subtle);
+}
+
+.window-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  flex-shrink: 0;
+}
+
+/* ─── Taskbar ───────────────────────────────────────────────────── */
+.taskbar {
+  height: var(--taskbar-height);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  background: rgba(0, 0, 0, 0.5);
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* ─── Icon grid ─────────────────────────────────────────────────── */
+.desktop-icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--duration-fast) var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.desktop-icon:hover {
+  background: var(--surface-glass-hover);
+}
+
+.desktop-icon.selected {
+  background: rgba(59, 130, 246, 0.25);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.4);
+}
+
+/* ─── Reduced motion ────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ─── Focus rings (accessibility) ──────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--blue-primary);
+  outline-offset: 2px;
+}
+
+/* ─── Selection color ───────────────────────────────────────────── */
+::selection {
+  background: rgba(59, 130, 246, 0.35);
+  color: white;
+}
+
+/* ─── Mobile safe areas ─────────────────────────────────────────── */
+@supports (padding: max(0px)) {
+  .safe-bottom { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .safe-top    { padding-top: max(0px, env(safe-area-inset-top)); }
+}
+
+/* ─── Tailwind custom spacing for smbelow breakpoint ───────────── */
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+  .bg-surface-glass { background: var(--surface-glass); }
+  .border-subtle { border-color: var(--border-subtle); }
+}
