@@ -38,8 +38,11 @@
   --duration-normal: 200ms;
   --duration-slow: 350ms;
 
-  /* Taskbar */
+  /* Taskbar — single source of truth.
+     All app overlays must use this to avoid rendering beneath the bar. */
   --taskbar-height: 52px;
+  /* Mobile status bar height (only added on small viewports) */
+  --statusbar-height: 36px;
 }
 
 /* ─── Base Resets ───────────────────────────────────────────────── */
@@ -138,6 +141,25 @@ body {
   border-top: 1px solid var(--border-subtle);
 }
 
+/* ─── App overlay containment ─────────────────────────────────────
+   All fixed overlays (modals, cameras, maps, games…) must stay
+   within the desktop area above the taskbar.
+   Use .app-overlay instead of `fixed inset-0` to get this automatically.
+*/
+.app-overlay {
+  position: fixed;
+  inset: 0 0 var(--taskbar-height) 0;
+  z-index: 50;
+  overflow: hidden;
+}
+
+/* On mobile the status bar at the top also eats space */
+@media (max-width: 767px) {
+  .app-overlay {
+    inset: var(--statusbar-height) 0 var(--taskbar-height) 0;
+  }
+}
+
 /* ─── Icon grid ─────────────────────────────────────────────────── */
 .desktop-icon {
   display: flex;
@@ -192,4 +214,13 @@ body {
   .text-balance { text-wrap: balance; }
   .bg-surface-glass { background: var(--surface-glass); }
   .border-subtle { border-color: var(--border-subtle); }
+
+  /* GPU-composited animation hint — apply to elements that will animate */
+  .will-animate {
+    will-change: transform, opacity;
+  }
+  /* Remove the hint after animation settles (add/remove via JS or use sparingly) */
+  .animation-settled {
+    will-change: auto;
+  }
 }
