@@ -204,19 +204,19 @@ const DesktopItems = ({
         {showContact && <Contact onClose={() => setShowContact(false)} />}
       </AnimatePresence>
 
-      {/* Dark mode toggle */}
-      <motion.button
-        whileHover={{ scale: 1.08 }}
-        whileTap={{ scale: 0.92 }}
-        onClick={() => setDarkMode((d) => !d)}
-        className="fixed bottom-20 right-4 z-50 p-2.5 rounded-full backdrop-blur-md bg-white/15 border border-white/20 shadow-lg"
-        aria-label="Toggle dark mode"
-        style={{ bottom: "calc(var(--taskbar-height) + 16px)" }}
-      >
-        {darkMode
-          ? <FaRegSun className="text-yellow-300 text-lg" />
-          : <FaRegMoon className="text-white text-lg" />}
-      </motion.button>
+      {/*/!* Dark mode toggle *!/*/}
+      {/*<motion.button*/}
+      {/*  whileHover={{ scale: 1.08 }}*/}
+      {/*  whileTap={{ scale: 0.92 }}*/}
+      {/*  onClick={() => setDarkMode((d) => !d)}*/}
+      {/*  className="fixed bottom-20 right-4 z-50 p-2.5 rounded-full backdrop-blur-md bg-white/15 border border-white/20 shadow-lg"*/}
+      {/*  aria-label="Toggle dark mode"*/}
+      {/*  style={{ bottom: "calc(var(--taskbar-height) + 16px)" }}*/}
+      {/*>*/}
+      {/*  {darkMode*/}
+      {/*    ? <FaRegSun className="text-yellow-300 text-lg" />*/}
+      {/*    : <FaRegMoon className="text-white text-lg" />}*/}
+      {/*</motion.button>*/}
     </div>
   );
 };
