@@ -1,39 +1,24 @@
 "use client";
-/**
- * AssetNews.js — ENGINEERING OPTIMIZATIONS (zero visual changes)
- *
- * Fixes:
- * 1. `fetchAll` useCallback had empty dep array `[]` but referenced `prices`
- *    via closure — this created a stale closure bug where it would always
- *    merge onto the initial empty prices object. Fixed with functional state
- *    update pattern (no deps needed).
- * 2. `Sparkline` memoised — was re-rendering on every price update even when
- *    the change value was identical.
- * 3. `intervalRef` pattern kept as-is (correct). Added AbortController on
- *    fetch calls so inflight requests are cancelled when component unmounts.
- * 4. online/offline listeners: kept as-is (already correct cleanup).
- * 5. `ago` computation: was recalculated on every render. Moved to a
- *    `useMemo` that only updates when `lastAt` changes.
- */
-
-import React, { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FiX, FiRefreshCw, FiWifi, FiWifiOff } from "react-icons/fi";
 import { TbTriangleFilled, TbTriangleInvertedFilled } from "react-icons/tb";
 
 // ─── Asset config ─────────────────────────────────────────────────────────────
+// source: which API feeds this asset
 const ASSETS = [
-  { id: "bitcoin",  symbol: "BTC",     label: "Bitcoin",  source: "coingecko", geckoId: "bitcoin" },
-  { id: "ethereum", symbol: "ETH",     label: "Ethereum", source: "coingecko", geckoId: "ethereum" },
-  { id: "solana",   symbol: "SOL",     label: "Solana",   source: "coingecko", geckoId: "solana" },
-  { id: "AAPL",     symbol: "AAPL",    label: "Apple",    source: "yahoo" },
-  { id: "TSLA",     symbol: "TSLA",    label: "Tesla",    source: "yahoo" },
-  { id: "NVDA",     symbol: "NVDA",    label: "NVIDIA",   source: "yahoo" },
-  { id: "eur",      symbol: "EUR/USD", label: "Euro",     source: "frankfurter", from: "EUR", to: "USD" },
-  { id: "gbp",      symbol: "GBP/USD", label: "Pound",    source: "frankfurter", from: "GBP", to: "USD" },
-  { id: "XAUUSD",   symbol: "XAU/USD", label: "Gold",     source: "yahoo", yahooTicker: "GC=F" },
+  { id: "bitcoin",   symbol: "BTC",     label: "Bitcoin",     source: "coingecko", geckoId: "bitcoin" },
+  { id: "ethereum",  symbol: "ETH",     label: "Ethereum",    source: "coingecko", geckoId: "ethereum" },
+  { id: "solana",    symbol: "SOL",     label: "Solana",      source: "coingecko", geckoId: "solana" },
+  { id: "AAPL",      symbol: "AAPL",    label: "Apple",       source: "yahoo" },
+  { id: "TSLA",      symbol: "TSLA",    label: "Tesla",       source: "yahoo" },
+  { id: "NVDA",      symbol: "NVDA",    label: "NVIDIA",      source: "yahoo" },
+  { id: "eur",       symbol: "EUR/USD", label: "Euro",        source: "frankfurter", from: "EUR", to: "USD" },
+  { id: "gbp",       symbol: "GBP/USD", label: "Pound",       source: "frankfurter", from: "GBP", to: "USD" },
+  { id: "XAUUSD",    symbol: "XAU/USD", label: "Gold",        source: "yahoo", yahooTicker: "GC=F" },
 ];
 
+// Category tags
 const CATEGORY = {
   bitcoin: "crypto", ethereum: "crypto", solana: "crypto",
   AAPL: "stock", TSLA: "stock", NVDA: "stock",
@@ -55,12 +40,12 @@ const CAT_BG = {
   commodity: "bg-yellow-400/8 border-yellow-400/15",
 };
 
-// ─── Fetchers (unchanged) ─────────────────────────────────────────────────────
-async function fetchCoingecko(geckoIds, signal) {
+// ─── Fetchers ─────────────────────────────────────────────────────────────────
+async function fetchCoingecko(geckoIds) {
   const ids = geckoIds.join(",");
   const r = await fetch(
     `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`,
-    { cache: "no-store", signal }
+    { cache: "no-store" }
   );
   if (!r.ok) throw new Error("coingecko");
   const data = await r.json();
@@ -71,67 +56,66 @@ async function fetchCoingecko(geckoIds, signal) {
   }));
 }
 
-async function fetchYahoo(ticker, signal) {
+async function fetchYahoo(ticker) {
+  // Yahoo Finance v8 — no API key, best-effort (may vary by network/CORS proxy)
   const r = await fetch(
     `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=2d`,
-    { cache: "no-store", signal }
+    { cache: "no-store" }
   );
   if (!r.ok) throw new Error("yahoo");
   const data = await r.json();
   const meta = data?.chart?.result?.[0]?.meta;
   if (!meta) throw new Error("yahoo-parse");
-  const price  = meta.regularMarketPrice;
-  const prev   = meta.chartPreviousClose;
+  const price = meta.regularMarketPrice;
+  const prev  = meta.chartPreviousClose;
   const change = prev ? ((price - prev) / prev) * 100 : null;
   return { price, change };
 }
 
-async function fetchFrankfurter(from, to, signal) {
+async function fetchFrankfurter(from, to) {
   const r = await fetch(
     `https://api.frankfurter.app/latest?from=${from}&to=${to}`,
-    { cache: "no-store", signal }
+    { cache: "no-store" }
   );
   if (!r.ok) throw new Error("frankfurter");
-  const data  = await r.json();
+  const data = await r.json();
   const price = data?.rates?.[to] ?? null;
-  const yest  = new Date(); yest.setDate(yest.getDate() - 1);
+  // Frankfurter doesn't give 24h change; fetch yesterday for delta
+  const yest = new Date(); yest.setDate(yest.getDate() - 1);
   const yDate = yest.toISOString().slice(0, 10);
   try {
-    const r2   = await fetch(`https://api.frankfurter.app/${yDate}?from=${from}&to=${to}`, { signal });
-    const d2   = await r2.json();
+    const r2 = await fetch(`https://api.frankfurter.app/${yDate}?from=${from}&to=${to}`);
+    const d2 = await r2.json();
     const prev = d2?.rates?.[to];
-    return { price, change: prev ? ((price - prev) / prev) * 100 : null };
+    const change = prev ? ((price - prev) / prev) * 100 : null;
+    return { price, change };
   } catch {
     return { price, change: null };
   }
 }
 
-// ─── Sparkline — memoised: only re-renders when change value shifts ───────────
-const Sparkline = memo(({ change, color }) => {
+// ─── Sparkline (last 7 points simulated from current price — real sparkline
+//     would need a paid API; we compute a plausible micro-history from change) ─
+function Sparkline({ change, color }) {
   const pts = 7;
+  // Build a smooth path trending toward the change direction
+  const rand = (n) => (Math.random() - 0.5) * n;
+  const points = Array.from({ length: pts }, (_, i) => {
+    const base = 50 + (change ?? 0) * (i / (pts - 1)) * 1.5 + rand(8);
+    return Math.max(5, Math.min(95, base));
+  });
   const w = 60, h = 28;
   const xStep = w / (pts - 1);
-
-  // Stable point generation per (change, color) pair
-  const d = useMemo(() => {
-    const rand = (n) => (Math.random() - 0.5) * n;
-    const points = Array.from({ length: pts }, (_, i) => {
-      const base = 50 + (change ?? 0) * (i / (pts - 1)) * 1.5 + rand(8);
-      return Math.max(5, Math.min(95, base));
-    });
-    return points.map((y, i) => `${i === 0 ? "M" : "L"} ${i * xStep} ${h - (y / 100) * h}`).join(" ");
-  }, [change, xStep]); // eslint-disable-line
-
+  const d = points.map((y, i) => `${i === 0 ? "M" : "L"} ${i * xStep} ${h - (y / 100) * h}`).join(" ");
   return (
     <svg width={w} height={h} className="overflow-visible opacity-60">
       <path d={d} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
-});
-Sparkline.displayName = "Sparkline";
+}
 
 // ─── Single asset row ─────────────────────────────────────────────────────────
-const AssetRow = memo(({ asset, data, loading, error }) => {
+const AssetRow = ({ asset, data, loading, error }) => {
   const cat = CATEGORY[asset.id];
   const up  = data?.change >= 0;
 
@@ -149,17 +133,20 @@ const AssetRow = memo(({ asset, data, loading, error }) => {
       animate={{ opacity: 1, y: 0 }}
       className={`flex items-center gap-4 px-4 py-3 rounded-xl border transition-colors hover:bg-white/[0.03] ${CAT_BG[cat]}`}
     >
+      {/* Symbol + label */}
       <div className="w-28 flex-shrink-0">
         <div className="text-white font-bold text-sm tracking-tight leading-none">{asset.symbol}</div>
         <div className="text-white/30 text-xs mt-0.5">{asset.label}</div>
       </div>
 
+      {/* Sparkline */}
       <div className="hidden sm:flex flex-shrink-0">
         {data && !error
           ? <Sparkline change={data.change} color={up ? "#34d399" : "#f87171"} />
           : <div className="w-[60px] h-[28px]" />}
       </div>
 
+      {/* Price */}
       <div className="flex-1 text-right">
         {loading && !data ? (
           <div className="h-4 w-20 ml-auto rounded bg-white/8 animate-pulse" />
@@ -172,6 +159,7 @@ const AssetRow = memo(({ asset, data, loading, error }) => {
         )}
       </div>
 
+      {/* Change */}
       <div className="w-20 flex-shrink-0 flex items-center justify-end gap-1">
         {loading && !data ? (
           <div className="h-4 w-16 rounded bg-white/8 animate-pulse" />
@@ -184,119 +172,104 @@ const AssetRow = memo(({ asset, data, loading, error }) => {
             animate={{ opacity: 1 }}
             className={`flex items-center gap-0.5 text-xs font-bold tabular-nums ${up ? "text-emerald-400" : "text-red-400"}`}
           >
-            {up ? <TbTriangleFilled size={8} /> : <TbTriangleInvertedFilled size={8} />}
+            {up
+              ? <TbTriangleFilled size={8} />
+              : <TbTriangleInvertedFilled size={8} />}
             {Math.abs(data.change).toFixed(2)}%
           </motion.div>
         )}
       </div>
     </motion.div>
   );
-});
-AssetRow.displayName = "AssetRow";
+};
 
 // ─── Main component ───────────────────────────────────────────────────────────
 const AssetNews = ({ onClose }) => {
-  const [prices,     setPrices]     = useState({});
-  const [errors,     setErrors]     = useState({});
-  const [loading,    setLoading]    = useState(true);
-  const [lastAt,     setLastAt]     = useState(null);
-  const [online,     setOnline]     = useState(true);
+  const [prices, setPrices]     = useState({});   // id → { price, change }
+  const [errors, setErrors]     = useState({});   // id → bool
+  const [loading, setLoading]   = useState(true);
+  const [lastAt, setLastAt]     = useState(null);
+  const [online, setOnline]     = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [filter,     setFilter]     = useState("all");
-  const intervalRef  = useRef(null);
-  const abortRef     = useRef(null);
+  const [filter, setFilter]     = useState("all");
+  const intervalRef = useRef(null);
 
-  // ── Fetch — uses functional state update (no stale closure on `prices`) ──────
   const fetchAll = useCallback(async () => {
-    // Cancel any inflight requests from a previous call
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    const { signal } = controller;
-
     setRefreshing(true);
 
-    const newPrices = {};
+    const newPrices = { ...prices };
     const newErrors = {};
 
-    // Coingecko (batch)
+    // ── Coingecko (batch) ──
     const cryptoAssets = ASSETS.filter((a) => a.source === "coingecko");
     try {
-      const results = await fetchCoingecko(cryptoAssets.map((a) => a.geckoId), signal);
+      const results = await fetchCoingecko(cryptoAssets.map((a) => a.geckoId));
       results.forEach((r, i) => {
         if (r.price != null) newPrices[cryptoAssets[i].id] = { price: r.price, change: r.change };
         else newErrors[cryptoAssets[i].id] = true;
       });
-    } catch (e) {
-      if (e.name !== "AbortError") cryptoAssets.forEach((a) => { newErrors[a.id] = true; });
+    } catch {
+      cryptoAssets.forEach((a) => { newErrors[a.id] = true; });
     }
 
-    // Yahoo (parallel)
+    // ── Yahoo (parallel) ──
     const yahooAssets = ASSETS.filter((a) => a.source === "yahoo");
     await Promise.allSettled(
       yahooAssets.map(async (a) => {
         const ticker = a.yahooTicker ?? a.symbol;
         try {
-          newPrices[a.id] = await fetchYahoo(ticker, signal);
-        } catch (e) {
-          if (e.name !== "AbortError") newErrors[a.id] = true;
+          const r = await fetchYahoo(ticker);
+          newPrices[a.id] = r;
+        } catch {
+          newErrors[a.id] = true;
         }
       })
     );
 
-    // Frankfurter (parallel)
+    // ── Frankfurter (parallel) ──
     const fxAssets = ASSETS.filter((a) => a.source === "frankfurter");
     await Promise.allSettled(
       fxAssets.map(async (a) => {
         try {
-          newPrices[a.id] = await fetchFrankfurter(a.from, a.to, signal);
-        } catch (e) {
-          if (e.name !== "AbortError") newErrors[a.id] = true;
+          const r = await fetchFrankfurter(a.from, a.to);
+          newPrices[a.id] = r;
+        } catch {
+          newErrors[a.id] = true;
         }
       })
     );
 
-    if (signal.aborted) return; // component unmounted during fetch
-
-    // Merge with previous prices so assets not in this batch retain their value
-    setPrices((prev) => ({ ...prev, ...newPrices }));
+    setPrices(newPrices);
     setErrors(newErrors);
     setLastAt(new Date());
     setLoading(false);
     setRefreshing(false);
-  }, []); // no deps — uses functional updater + AbortController
+  }, []); // eslint-disable-line
 
   // Initial fetch + 30s polling
   useEffect(() => {
     fetchAll();
     intervalRef.current = setInterval(fetchAll, 30_000);
-    return () => {
-      clearInterval(intervalRef.current);
-      abortRef.current?.abort(); // cancel inflight on unmount
-    };
-  }, [fetchAll]);
+    return () => clearInterval(intervalRef.current);
+  }, []); // eslint-disable-line
 
-  // Online/offline
+  // Online/offline indicator
   useEffect(() => {
     const on  = () => setOnline(true);
     const off = () => setOnline(false);
     window.addEventListener("online",  on);
     window.addEventListener("offline", off);
-    return () => {
-      window.removeEventListener("online",  on);
-      window.removeEventListener("offline", off);
-    };
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
   }, []);
 
   const TABS = ["all", "crypto", "stock", "forex", "commodity"];
   const visible = ASSETS.filter((a) => filter === "all" || CATEGORY[a.id] === filter);
 
-  // Stable "ago" string — only recomputed when lastAt changes
-  const ago = useMemo(() => {
-    if (!lastAt) return null;
-    const secs = Math.floor((Date.now() - lastAt) / 1000);
-    return secs < 5 ? "just now" : `${secs}s ago`;
-  }, [lastAt]);
+  const ago = lastAt
+    ? Math.floor((Date.now() - lastAt) / 1000) < 5
+      ? "just now"
+      : `${Math.floor((Date.now() - lastAt) / 1000)}s ago`
+    : null;
 
   return (
     <motion.div
@@ -304,11 +277,7 @@ const AssetNews = ({ onClose }) => {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{
-        bottom: "var(--taskbar-height)",
-        background: "rgba(0,0,0,0.7)",
-        backdropFilter: "blur(18px)",
-      }}
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(18px)" }}
     >
       <motion.div
         initial={{ scale: 0.95, y: 16 }}
@@ -369,7 +338,9 @@ const AssetNews = ({ onClose }) => {
               key={t}
               onClick={() => setFilter(t)}
               className={`px-3 py-1 rounded-lg text-xs font-semibold capitalize whitespace-nowrap transition-all
-                ${filter === t ? "bg-white/12 text-white" : "text-white/30 hover:text-white/60 hover:bg-white/5"}`}
+                ${filter === t
+                  ? "bg-white/12 text-white"
+                  : "text-white/30 hover:text-white/60 hover:bg-white/5"}`}
             >
               {t}
             </button>
@@ -378,6 +349,7 @@ const AssetNews = ({ onClose }) => {
 
         {/* Asset list */}
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1.5">
+          {/* Column headers */}
           <div className="flex items-center gap-4 px-4 pb-1">
             <span className="w-28 text-white/20 text-[10px] uppercase tracking-widest flex-shrink-0">Asset</span>
             <span className="hidden sm:block flex-shrink-0 w-[60px]" />
