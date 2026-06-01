@@ -250,22 +250,22 @@ const Resume = ({ onClose }) => {
               </div>
             </section>
 
-            {/* Download / Projects */}
-            <div className="md:static fixed bottom-4 left-0 right-0 px-4 md:px-0 md:mt-8">
-              <div className="md:flex justify-center">
-                <motion.a
-                  href="https://github.com/dascott1990"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-center px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg shadow-md hover:shadow-lg transition-all w-full md:w-auto"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <FiDownload className="mr-2" />
-                  View My Projects
-                </motion.a>
-              </div>
-            </div>
+            {/*/!* Download / Projects *!/*/}
+            {/*<div className="md:static fixed bottom-4 left-0 right-0 px-4 md:px-0 md:mt-8">*/}
+            {/*  <div className="md:flex justify-center">*/}
+            {/*    <motion.a*/}
+            {/*      href="https://github.com/dascott1990"*/}
+            {/*      target="_blank"*/}
+            {/*      rel="noopener noreferrer"*/}
+            {/*      className="flex items-center justify-center px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg shadow-md hover:shadow-lg transition-all w-full md:w-auto"*/}
+            {/*      whileHover={{ scale: 1.02 }}*/}
+            {/*      whileTap={{ scale: 0.98 }}*/}
+            {/*    >*/}
+            {/*      <FiDownload className="mr-2" />*/}
+            {/*      View My Projects*/}
+            {/*    </motion.a>*/}
+            {/*  </div>*/}
+            {/*</div>*/}
 
           </motion.div>
         </div>
