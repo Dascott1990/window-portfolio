@@ -1,4 +1,5 @@
 "use client";
+
 import React, {
   useState, useEffect, useRef, useCallback, useMemo, useReducer,
 } from "react";
@@ -37,6 +38,8 @@ const ICONS = {
   share:    "M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13",
   trash:    "M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6",
   expand:   "M15 3h6m0 0v6m0-6l-7 7M9 21H3m0 0v-6m0 6l7-7",
+  caption:  "M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z",
+  check:    "M20 6L9 17l-5-5",
 };
 
 const MODES = [
@@ -61,40 +64,52 @@ const FILTERS = {
 };
 
 const OVERLAYS = {
-  cinematic: { bars: true,  vignette: true,  grain: false, tint: null },
-  night:     { bars: false, vignette: true,  grain: true,  tint: "rgba(20,10,60,0.18)" },
-  portrait:  { bars: false, vignette: true,  grain: false, tint: null },
-  ai:        { bars: false, vignette: false, grain: false, tint: null },
+  cinematic: { bars: true,  vignette: true,  grain: false },
+  night:     { bars: false, vignette: true,  grain: true  },
+  portrait:  { bars: false, vignette: true,  grain: false },
+  ai:        { bars: false, vignette: false, grain: false },
 };
 
 const initialState = {
   mode: "photo", facingMode: "environment", flashMode: "off",
   zoom: 1, timer: 0, hdr: false, gridEnabled: false,
-  isRecording: false, recordSeconds: 0, capturedImages: [],
+  isRecording: false, recordSeconds: 0,
+  capturedImages: [],   // { src, mode, ts, type:"photo"|"video", caption:"", videoBlob }
   timerCountdown: null, fps: 0,
   brightness: 0, contrast: 0, saturation: 0, exposure: 0,
   iso: "auto", shutterSpeed: "auto", whiteBalance: "auto",
   aiScene: null, faceCount: 0,
   showDevPanel: false, scanMode: false,
   notification: null, burstCount: 0, beautyLevel: 0,
-  // NEW: UI collapse + gallery
-  controlsVisible: true,  // top/bottom controls shown
+  controlsVisible: true,
   showGallery: false,
-  previewImage: null,     // full-screen preview { src, mode, ts, index }
+  galleryAlbum: "all",       // "all" | "video" | mode id
+  // Post-capture review
+  reviewItem: null,          // item pending save/delete
+  // Full-screen preview
+  previewImage: null,
   previewIndex: null,
+  // Caption editing
+  editingCaption: false,
+  captionDraft: "",
 };
 
 function reducer(state, action) {
   switch (action.type) {
     case "SET":       return { ...state, ...action.payload };
     case "TOGGLE":    return { ...state, [action.key]: !state[action.key] };
-    case "ADD_IMAGE": return { ...state, capturedImages: [action.img, ...state.capturedImages].slice(0, 60) };
+    case "ADD_IMAGE": return { ...state, capturedImages: [action.img, ...state.capturedImages].slice(0, 120) };
     case "NOTIFY":    return { ...state, notification: action.msg };
-    case "DEL_IMAGE": return {
-      ...state,
-      capturedImages: state.capturedImages.filter((_, i) => i !== action.index),
-      previewImage: null, previewIndex: null,
-    };
+    case "DEL_IMAGE": {
+      const imgs = state.capturedImages.filter((_, i) => i !== action.index);
+      return { ...state, capturedImages: imgs, previewImage: null, previewIndex: null };
+    }
+    case "UPDATE_CAPTION": {
+      const imgs = state.capturedImages.map((img, i) =>
+        i === action.index ? { ...img, caption: action.caption } : img
+      );
+      return { ...state, capturedImages: imgs, editingCaption: false, captionDraft: "" };
+    }
     default: return state;
   }
 }
@@ -124,28 +139,25 @@ const Camera = ({ onClose }) => {
   const fpsFrames    = useRef([]);
   const timerRef     = useRef(null);
   const rootRef      = useRef(null);
-  // Auto-hide timer ref
   const hideTimerRef = useRef(null);
+  const captionInputRef = useRef(null);
 
-  const zoomMV     = useMotionValue(st.zoom);
-  const zoomSpring = useSpring(zoomMV, { stiffness: 200, damping: 22 });
+  const zoomMV = useMotionValue(1);
+  useSpring(zoomMV, { stiffness: 200, damping: 22 });
 
-  // ── Auto-hide controls after 3s of no interaction ─────────────────
+  // ── Auto-hide controls ──────────────────────────────────────────────
   const showControls = useCallback(() => {
     set({ controlsVisible: true });
     clearTimeout(hideTimerRef.current);
-    hideTimerRef.current = setTimeout(() => {
-      set({ controlsVisible: false });
-    }, 3500);
+    hideTimerRef.current = setTimeout(() => set({ controlsVisible: false }), 3500);
   }, [set]);
 
-  // On mount: start auto-hide timer
   useEffect(() => {
     showControls();
     return () => clearTimeout(hideTimerRef.current);
   }, []); // eslint-disable-line
 
-  // ── Camera stream ──────────────────────────────────────────────────
+  // ── Camera stream ───────────────────────────────────────────────────
   const startCamera = useCallback(async () => {
     try {
       if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
@@ -154,13 +166,9 @@ const Camera = ({ onClose }) => {
         audio: true,
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play().catch(() => {});
-      }
+      if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play().catch(() => {}); }
       note(`Camera ready · ${st.facingMode === "environment" ? "Rear" : "Front"}`);
     } catch {
-      // Retry without audio if audio fails
       try {
         if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -184,7 +192,7 @@ const Camera = ({ onClose }) => {
     clearTimeout(hideTimerRef.current);
   }, []);
 
-  // ── FPS ───────────────────────────────────────────────────────────
+  // ── FPS ─────────────────────────────────────────────────────────────
   useEffect(() => {
     let id;
     const loop = (now) => {
@@ -197,7 +205,7 @@ const Camera = ({ onClose }) => {
     return () => cancelAnimationFrame(id);
   }, [set]);
 
-  // ── AI scene sim ──────────────────────────────────────────────────
+  // ── AI scene sim ─────────────────────────────────────────────────────
   useEffect(() => {
     const id = setInterval(() => {
       if (st.mode === "ai" || st.mode === "photo")
@@ -206,7 +214,7 @@ const Camera = ({ onClose }) => {
     return () => clearInterval(id);
   }, [st.mode, set]);
 
-  // ── Canvas overlay ────────────────────────────────────────────────
+  // ── Canvas overlay ───────────────────────────────────────────────────
   useEffect(() => {
     const canvas = overlayRef.current;
     if (!canvas) return;
@@ -229,7 +237,7 @@ const Camera = ({ onClose }) => {
       }
       if (st.scanMode) {
         const now = performance.now();
-        const y   = ((now * 0.15) % canvas.height);
+        const y = ((now * 0.15) % canvas.height);
         const grad = ctx.createLinearGradient(0, y - 40, 0, y + 40);
         grad.addColorStop(0, "rgba(0,245,212,0)");
         grad.addColorStop(0.5, "rgba(0,245,212,0.35)");
@@ -243,7 +251,7 @@ const Camera = ({ onClose }) => {
     return () => cancelAnimationFrame(id);
   }, [st.mode, st.faceCount, st.scanMode]);
 
-  // ── CSS filter ────────────────────────────────────────────────────
+  // ── CSS filter ───────────────────────────────────────────────────────
   const liveFilter = useMemo(() => {
     const base   = FILTERS[st.mode] || "";
     const bright = `brightness(${1 + st.brightness / 100})`;
@@ -253,7 +261,7 @@ const Camera = ({ onClose }) => {
     return `${bright} ${cont} ${sat} ${base} ${beauty}`.trim();
   }, [st.mode, st.brightness, st.contrast, st.saturation, st.beautyLevel]);
 
-  // ── Capture ───────────────────────────────────────────────────────
+  // ── Capture photo ────────────────────────────────────────────────────
   const capturePhoto = useCallback((fromBurst = false) => {
     const video = videoRef.current, canvas = canvasRef.current;
     if (!video || !canvas) return;
@@ -261,13 +269,7 @@ const Camera = ({ onClose }) => {
     canvas.height = video.videoHeight || 720;
     const ctx = canvas.getContext("2d");
     ctx.save();
-
-    // Mirror front camera to match viewfinder
-    if (st.facingMode === "user") {
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
-    }
-
+    if (st.facingMode === "user") { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
     if (st.mode === "night") {
       for (let f = 0; f < 4; f++) {
         ctx.globalAlpha = 0.25;
@@ -281,7 +283,6 @@ const Camera = ({ onClose }) => {
       ctx.filter = "none";
     }
     ctx.restore();
-
     if (st.mode === "cinematic") {
       const barH = canvas.height * 0.08;
       ctx.fillStyle = "#000";
@@ -293,9 +294,14 @@ const Camera = ({ onClose }) => {
       ctx.fillText(new Date().toISOString(), 16, canvas.height - 16);
     }
     const dataUrl = canvas.toDataURL("image/jpeg", 0.96);
-    dispatch({ type: "ADD_IMAGE", img: { src: dataUrl, mode: st.mode, ts: Date.now() } });
-    if (!fromBurst) note(`✓ Photo saved · ${st.mode.toUpperCase()}`);
-  }, [st.mode, st.facingMode, liveFilter, note]);
+    const item = { src: dataUrl, mode: st.mode, ts: Date.now(), type: "photo", caption: "" };
+    if (!fromBurst) {
+      // Show review screen
+      set({ reviewItem: item });
+    } else {
+      dispatch({ type: "ADD_IMAGE", img: item });
+    }
+  }, [st.mode, st.facingMode, liveFilter, set]);
 
   const captureBurst = useCallback(async () => {
     set({ burstCount: 0 }); note("Burst: capturing 10 frames…");
@@ -318,26 +324,27 @@ const Camera = ({ onClose }) => {
   }, [st.timer, capturePhoto, set]);
 
   const handleShutter = useCallback(() => {
-    showControls(); // reset hide timer on shutter press
+    showControls();
     if (st.mode === "video") {
       if (st.isRecording) {
         mediaRecRef.current?.stop();
         clearInterval(recTimerRef.current);
-        set({ isRecording: false, recordSeconds: 0 }); note("✓ Video saved");
+        set({ isRecording: false, recordSeconds: 0 });
       } else {
         const stream = streamRef.current; if (!stream) return;
         recChunks.current = [];
-        // Pick a supported mimeType
         const mimeType = ["video/webm;codecs=vp9","video/webm;codecs=vp8","video/webm","video/mp4"]
           .find((t) => MediaRecorder.isTypeSupported(t)) || "";
         const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {});
         mr.ondataavailable = (e) => recChunks.current.push(e.data);
         mr.onstop = () => {
           const blobType = mr.mimeType || "video/webm";
-          const ext = blobType.includes("mp4") ? "mp4" : "webm";
           const blob = new Blob(recChunks.current, { type: blobType });
-          const a = document.createElement("a");
-          a.href = URL.createObjectURL(blob); a.download = `neural-cam-${Date.now()}.${ext}`; a.click();
+          const url = URL.createObjectURL(blob);
+          const ext = blobType.includes("mp4") ? "mp4" : "webm";
+          // Show review screen for video
+          const item = { src: url, mode: "video", ts: Date.now(), type: "video", caption: "", ext, blob };
+          set({ reviewItem: item });
         };
         mr.start(100); mediaRecRef.current = mr;
         recStartRef.current = Date.now();
@@ -352,16 +359,29 @@ const Camera = ({ onClose }) => {
     } else {
       startTimerCapture();
     }
-  }, [st.mode, st.isRecording, captureBurst, startTimerCapture, set, note, showControls]);
+  }, [st.mode, st.isRecording, captureBurst, startTimerCapture, set, showControls]);
+
+  // Save / discard review item
+  const saveReviewItem = useCallback(() => {
+    if (!st.reviewItem) return;
+    dispatch({ type: "ADD_IMAGE", img: st.reviewItem });
+    set({ reviewItem: null });
+    note(`✓ ${st.reviewItem.type === "video" ? "Video" : "Photo"} saved · ${st.reviewItem.mode.toUpperCase()}`);
+  }, [st.reviewItem, set, note]);
+
+  const discardReviewItem = useCallback(() => {
+    set({ reviewItem: null });
+    note("Discarded");
+  }, [set, note]);
 
   const flipCamera = useCallback(() => {
     showControls();
     set({ facingMode: st.facingMode === "environment" ? "user" : "environment" });
   }, [st.facingMode, set, showControls]);
 
-  // ── Pinch zoom ────────────────────────────────────────────────────
+  // ── Pinch zoom ───────────────────────────────────────────────────────
   const touchStartRef = useRef(null);
-  const onTouchStart  = (e) => {
+  const onTouchStart = (e) => {
     showControls();
     if (e.touches.length === 2) {
       const dx = e.touches[0].clientX - e.touches[1].clientX;
@@ -378,10 +398,9 @@ const Camera = ({ onClose }) => {
     }
   };
 
-  // ── Tap-to-focus ──────────────────────────────────────────────────
+  // ── Tap-to-focus ─────────────────────────────────────────────────────
   const [focusRing, setFocusRing] = useState(null);
   const handleViewfinderTap = (e) => {
-    // If controls are hidden, a tap just shows them
     if (!st.controlsVisible) { showControls(); return; }
     showControls();
     const rect = e.currentTarget.getBoundingClientRect();
@@ -403,26 +422,26 @@ const Camera = ({ onClose }) => {
     note(`Flash: ${next.toUpperCase()}`);
   }, [st.flashMode, set, note, showControls]);
 
-  const downloadPhoto = useCallback((src, ts) => {
+  const downloadItem = useCallback((item) => {
     const a = document.createElement("a");
-    a.href = src; a.download = `neural-cam-${ts}.jpg`; a.click();
+    a.href = item.src;
+    a.download = `neural-cam-${item.ts}.${item.type === "video" ? (item.ext || "webm") : "jpg"}`;
+    a.click();
     note("✓ Downloaded");
   }, [note]);
 
-  // ── Preview navigation ────────────────────────────────────────────
+  // ── Preview navigation ───────────────────────────────────────────────
   const openPreview = useCallback((index) => {
     const img = st.capturedImages[index];
     if (img) set({ showGallery: false, previewImage: img, previewIndex: index });
   }, [st.capturedImages, set]);
 
   const prevPreview = useCallback(() => {
-    const next = Math.min(st.previewIndex + 1, st.capturedImages.length - 1);
-    openPreview(next);
+    openPreview(Math.min(st.previewIndex + 1, st.capturedImages.length - 1));
   }, [st.previewIndex, st.capturedImages.length, openPreview]);
 
   const nextPreview = useCallback(() => {
-    const next = Math.max(st.previewIndex - 1, 0);
-    openPreview(next);
+    openPreview(Math.max(st.previewIndex - 1, 0));
   }, [st.previewIndex, openPreview]);
 
   const PRO_CONTROLS = [
@@ -434,7 +453,33 @@ const Camera = ({ onClose }) => {
 
   const modeColor = MODES.find((m) => m.id === st.mode)?.color ?? "#60a5fa";
   const overlay   = OVERLAYS[st.mode] || {};
+
+  // Gallery album filtering
+  const ALBUMS = useMemo(() => {
+    const albums = [{ id: "all", label: "All" }, { id: "video", label: "Videos" }];
+    const modes = [...new Set(st.capturedImages.filter(i => i.type !== "video").map(i => i.mode))];
+    modes.forEach(m => {
+      const found = MODES.find(md => md.id === m);
+      if (found) albums.push({ id: m, label: found.label, color: found.color });
+    });
+    return albums;
+  }, [st.capturedImages]);
+
+  const filteredImages = useMemo(() => {
+    if (st.galleryAlbum === "all") return st.capturedImages;
+    if (st.galleryAlbum === "video") return st.capturedImages.filter(i => i.type === "video");
+    return st.capturedImages.filter(i => i.mode === st.galleryAlbum && i.type !== "video");
+  }, [st.capturedImages, st.galleryAlbum]);
+
+  // Last photo for thumbnail (most recent non-video, or any)
   const lastPhoto = st.capturedImages[0];
+
+  // Focus caption input when editing
+  useEffect(() => {
+    if (st.editingCaption && captionInputRef.current) {
+      setTimeout(() => captionInputRef.current?.focus(), 100);
+    }
+  }, [st.editingCaption]);
 
   return (
     <div
@@ -446,11 +491,11 @@ const Camera = ({ onClose }) => {
         fontFamily: "'SF Pro Display', '-apple-system', 'Helvetica Neue', sans-serif",
       }}
     >
-      {/* ── Hidden capture canvas ────────────────────────────────── */}
+      {/* ── Hidden capture canvas ──────────────────────────────────── */}
       <canvas ref={canvasRef} className="hidden" />
 
       {/* ══════════════════════════════════════════════════════════════
-          VIEWFINDER — fills ALL available space
+          VIEWFINDER
          ══════════════════════════════════════════════════════════════ */}
       <div
         className="relative flex-1 overflow-hidden"
@@ -593,11 +638,10 @@ const Camera = ({ onClose }) => {
           </motion.div>
         )}
 
-        {/* ── "tap to show controls" hint when hidden ── */}
+        {/* Tap to show controls hint */}
         <AnimatePresence>
           {!st.controlsVisible && (
-            <motion.div
-              initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
+            <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
               style={{ position:"absolute", bottom:20, left:"50%", transform:"translateX(-50%)",
                 color:"rgba(255,255,255,0.4)", fontSize:11, zIndex:10, letterSpacing:"0.06em",
                 pointerEvents:"none" }}>
@@ -618,9 +662,8 @@ const Camera = ({ onClose }) => {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between">
-                {/* Left: close + flash + grid */}
                 <div className="flex items-center gap-3">
-                  <button onClick={() => { onClose(); }}
+                  <button onClick={() => onClose()}
                     style={{ width:36, height:36, borderRadius:"50%", background:"rgba(255,255,255,0.12)",
                       border:"none", cursor:"pointer", display:"flex", alignItems:"center",
                       justifyContent:"center", color:"#fff" }}>
@@ -642,7 +685,6 @@ const Camera = ({ onClose }) => {
                   </button>
                 </div>
 
-                {/* Center: AI scene */}
                 {st.aiScene && (
                   <motion.div key={st.aiScene}
                     initial={{ opacity:0, y:-6 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0 }}
@@ -653,7 +695,6 @@ const Camera = ({ onClose }) => {
                   </motion.div>
                 )}
 
-                {/* Right: HDR + scan + fps */}
                 <div className="flex items-center gap-2">
                   <button onClick={() => { tog("hdr"); showControls(); }}
                     style={{ padding:"4px 10px", borderRadius:8,
@@ -681,25 +722,36 @@ const Camera = ({ onClose }) => {
           )}
         </AnimatePresence>
 
-        {/* ════ GALLERY THUMBNAIL (always visible, bottom-left) ════ */}
+        {/* ════ TRANSPARENT THUMBNAIL — always visible, above controls ════ */}
         {lastPhoto && (
           <motion.button
-            whileTap={{ scale:0.9 }}
-            onClick={(e) => { e.stopPropagation(); openPreview(0); }}
-            style={{ position:"absolute", bottom:16, left:16, zIndex:35,
-              width:52, height:52, borderRadius:10, overflow:"hidden",
-              border:"1.5px solid rgba(255,255,255,0.5)",
-              cursor:"pointer", background:"transparent",
-              boxShadow:"0 2px 16px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.1)" }}>
-            <img src={lastPhoto.src} alt=""
-              style={{ width:"100%", height:"100%", objectFit:"cover", opacity:0.72 }} />
-            {/* Subtle glassy overlay for mirror effect */}
-            <div style={{ position:"absolute", inset:0,
-              background:"linear-gradient(135deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.04) 50%, rgba(0,0,0,0.12) 100%)",
-              backdropFilter:"blur(0px)", pointerEvents:"none" }} />
+            whileTap={{ scale:0.92 }}
+            onClick={(e) => { e.stopPropagation(); openPreview(0); showControls(); }}
+            style={{
+              position:"absolute", bottom:16, left:16, zIndex:40,
+              width:48, height:48, borderRadius:10, overflow:"hidden",
+              border:"1.5px solid rgba(255,255,255,0.6)",
+              cursor:"pointer", padding:0, background:"transparent",
+              boxShadow:"0 2px 12px rgba(0,0,0,0.4)",
+            }}>
+            {lastPhoto.type === "video" ? (
+              <div style={{ width:"100%", height:"100%", background:"rgba(0,0,0,0.3)",
+                display:"flex", alignItems:"center", justifyContent:"center" }}>
+                <Icon d={ICONS.video} size={20} />
+              </div>
+            ) : (
+              <img src={lastPhoto.src} alt=""
+                style={{ width:"100%", height:"100%", objectFit:"cover",
+                  opacity:0.85, display:"block" }} />
+            )}
+            {/* Glass sheen overlay — no background fill, pure sheen */}
+            <div style={{ position:"absolute", inset:0, pointerEvents:"none",
+              background:"linear-gradient(135deg, rgba(255,255,255,0.22) 0%, transparent 60%)",
+              borderRadius:9 }} />
             {st.capturedImages.length > 1 && (
-              <div style={{ position:"absolute", bottom:2, right:4, color:"#fff", fontSize:9,
-                fontWeight:700, textShadow:"0 1px 3px #000" }}>
+              <div style={{ position:"absolute", bottom:2, right:3,
+                color:"#fff", fontSize:8, fontWeight:800,
+                textShadow:"0 1px 4px rgba(0,0,0,0.9)" }}>
                 {st.capturedImages.length}
               </div>
             )}
@@ -708,7 +760,7 @@ const Camera = ({ onClose }) => {
       </div>
 
       {/* ══════════════════════════════════════════════════════════════
-          BOTTOM CONTROLS — auto-hide, slide up/down
+          BOTTOM CONTROLS — auto-hide
          ══════════════════════════════════════════════════════════════ */}
       <AnimatePresence>
         {st.controlsVisible && (
@@ -727,8 +779,7 @@ const Camera = ({ onClose }) => {
                   <div className="flex items-center gap-4 px-4 py-2 overflow-x-auto" style={{ scrollbarWidth:"none" }}>
                     {PRO_CONTROLS.map(({ label, key, min, max, step }) => (
                       <div key={key} style={{ flexShrink:0, textAlign:"center", minWidth:80 }}>
-                        <div style={{ color:modeColor, fontSize:9, fontWeight:700,
-                          letterSpacing:"0.1em", marginBottom:4 }}>
+                        <div style={{ color:modeColor, fontSize:9, fontWeight:700, letterSpacing:"0.1em", marginBottom:4 }}>
                           {label} {st[key] > 0 ? "+" : ""}{st[key]}
                         </div>
                         <input type="range" min={min} max={max} step={step} value={st[key]}
@@ -809,11 +860,11 @@ const Camera = ({ onClose }) => {
               ))}
             </div>
 
-            {/* Shutter row */}
+            {/* Shutter row — timer | shutter | flip  (caption inline with mode label above) */}
             <div className="flex items-center justify-between px-8 pb-4 pt-1" style={{ minHeight:80 }}>
-              {/* Left side */}
+
+              {/* Left: timer + gallery */}
               <div className="flex flex-col items-center gap-2">
-                {/* Timer */}
                 <motion.button whileTap={{ scale:0.9 }}
                   onClick={() => {
                     const next = st.timer === 0 ? 3 : st.timer === 3 ? 10 : 0;
@@ -827,7 +878,7 @@ const Camera = ({ onClose }) => {
                     justifyContent:"center", cursor:"pointer" }}>
                   {st.timer === 0 ? <Icon d={ICONS.timer} size={17} /> : `${st.timer}s`}
                 </motion.button>
-                {/* Open gallery */}
+                {/* Caption button — opens gallery or lets you add caption to last photo */}
                 <motion.button whileTap={{ scale:0.9 }}
                   onClick={() => { set({ showGallery: true }); showControls(); }}
                   style={{ width:44, height:44, borderRadius:"50%",
@@ -835,7 +886,7 @@ const Camera = ({ onClose }) => {
                     border:"1px solid rgba(255,255,255,0.15)",
                     color: st.capturedImages.length ? "#fff" : "rgba(255,255,255,0.2)",
                     display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer" }}>
-                  <Icon d={ICONS.gallery} size={18} />
+                  <Icon d={ICONS.film} size={18} />
                 </motion.button>
               </div>
 
@@ -852,16 +903,14 @@ const Camera = ({ onClose }) => {
                   style={{ width:"100%", height:"100%", borderRadius:"50%" }} />
               </motion.button>
 
-              {/* Right side */}
+              {/* Right: flip + dev */}
               <div className="flex flex-col items-center gap-2">
-                {/* Flip */}
                 <motion.button whileTap={{ scale:0.9, rotate:180 }} onClick={flipCamera}
                   style={{ width:44, height:44, borderRadius:"50%",
                     background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.15)",
                     color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer" }}>
                   <Icon d={ICONS.flip} size={18} />
                 </motion.button>
-                {/* Dev panel */}
                 <motion.button whileTap={{ scale:0.9 }}
                   onClick={() => { tog("showDevPanel"); showControls(); }}
                   style={{ width:44, height:44, borderRadius:"50%",
@@ -878,7 +927,120 @@ const Camera = ({ onClose }) => {
       </AnimatePresence>
 
       {/* ══════════════════════════════════════════════════════════════
-          FULL-SCREEN PHOTO PREVIEW
+          POST-CAPTURE REVIEW SCREEN
+          Shows after every photo/video — Save or Delete before keeping
+         ══════════════════════════════════════════════════════════════ */}
+      <AnimatePresence>
+        {st.reviewItem && (
+          <motion.div
+            initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
+            style={{ position:"fixed", inset:0, bottom:"var(--taskbar-height,52px)",
+              zIndex:85, background:"#000", display:"flex", flexDirection:"column" }}
+          >
+            {/* Media */}
+            <div style={{ flex:1, position:"relative", overflow:"hidden" }}>
+              {st.reviewItem.type === "video" ? (
+                <video
+                  src={st.reviewItem.src}
+                  controls autoPlay loop
+                  style={{ width:"100%", height:"100%", objectFit:"contain" }}
+                />
+              ) : (
+                <img
+                  src={st.reviewItem.src}
+                  alt="Review"
+                  style={{ width:"100%", height:"100%", objectFit:"contain" }}
+                />
+              )}
+
+              {/* Mode badge */}
+              <div style={{ position:"absolute", top:16, left:"50%", transform:"translateX(-50%)",
+                padding:"4px 14px", borderRadius:12, zIndex:10,
+                background:"rgba(0,0,0,0.65)",
+                color: MODES.find((m) => m.id === st.reviewItem.mode)?.color ?? "#fff",
+                fontSize:10, fontWeight:700, letterSpacing:"0.08em" }}>
+                {st.reviewItem.mode?.toUpperCase()} {st.reviewItem.type === "video" ? "· VIDEO" : ""}
+              </div>
+
+              {/* Caption display on image */}
+              {st.reviewItem.caption ? (
+                <div style={{ position:"absolute", bottom:0, left:0, right:0,
+                  background:"linear-gradient(transparent, rgba(0,0,0,0.7))",
+                  padding:"24px 16px 12px", zIndex:10 }}>
+                  <p style={{ color:"#fff", fontSize:14, textAlign:"center",
+                    fontStyle:"italic", textShadow:"0 1px 4px rgba(0,0,0,0.8)" }}>
+                    "{st.reviewItem.caption}"
+                  </p>
+                </div>
+              ) : null}
+            </div>
+
+            {/* Caption input area */}
+            <div style={{ background:"rgba(0,0,0,0.9)", borderTop:"1px solid rgba(255,255,255,0.08)" }}>
+              {st.editingCaption ? (
+                <div style={{ padding:"10px 16px", display:"flex", gap:8, alignItems:"center" }}>
+                  <input
+                    ref={captionInputRef}
+                    type="text"
+                    value={st.captionDraft}
+                    onChange={(e) => set({ captionDraft: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        set({ reviewItem: { ...st.reviewItem, caption: st.captionDraft }, editingCaption: false });
+                      }
+                      if (e.key === "Escape") set({ editingCaption: false, captionDraft: "" });
+                    }}
+                    placeholder="Add a caption…"
+                    style={{ flex:1, background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)",
+                      borderRadius:10, padding:"8px 12px", color:"#fff", fontSize:14, outline:"none" }}
+                  />
+                  <button
+                    onClick={() => set({ reviewItem: { ...st.reviewItem, caption: st.captionDraft }, editingCaption: false })}
+                    style={{ width:36, height:36, borderRadius:"50%", background:"#22c55e",
+                      border:"none", cursor:"pointer", display:"flex", alignItems:"center",
+                      justifyContent:"center", color:"#fff", flexShrink:0 }}>
+                    <Icon d={ICONS.check} size={16} />
+                  </button>
+                </div>
+              ) : (
+                <div style={{ padding:"8px 16px", display:"flex", justifyContent:"center" }}>
+                  <button
+                    onClick={() => set({ editingCaption: true, captionDraft: st.reviewItem.caption || "" })}
+                    style={{ display:"flex", alignItems:"center", gap:6, background:"rgba(255,255,255,0.08)",
+                      border:"1px solid rgba(255,255,255,0.15)", borderRadius:20,
+                      padding:"6px 16px", color:"rgba(255,255,255,0.6)", cursor:"pointer", fontSize:12 }}>
+                    <Icon d={ICONS.caption} size={14} />
+                    {st.reviewItem.caption ? "Edit caption" : "Add caption"}
+                  </button>
+                </div>
+              )}
+
+              {/* Save / Delete row */}
+              <div style={{ display:"flex", gap:12, padding:"8px 24px 16px" }}>
+                <motion.button whileTap={{ scale:0.95 }}
+                  onClick={discardReviewItem}
+                  style={{ flex:1, padding:"13px 0", borderRadius:14,
+                    background:"rgba(239,68,68,0.18)", border:"1px solid rgba(239,68,68,0.35)",
+                    color:"#f87171", fontSize:15, fontWeight:700, cursor:"pointer",
+                    display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+                  <Icon d={ICONS.trash} size={17} /> Delete
+                </motion.button>
+                <motion.button whileTap={{ scale:0.95 }}
+                  onClick={saveReviewItem}
+                  style={{ flex:1, padding:"13px 0", borderRadius:14,
+                    background:"rgba(34,197,94,0.2)", border:"1px solid rgba(34,197,94,0.4)",
+                    color:"#4ade80", fontSize:15, fontWeight:700, cursor:"pointer",
+                    display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+                  <Icon d={ICONS.check} size={17} /> Save
+                </motion.button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ══════════════════════════════════════════════════════════════
+          FULL-SCREEN PHOTO / VIDEO PREVIEW
          ══════════════════════════════════════════════════════════════ */}
       <AnimatePresence>
         {st.previewImage && (
@@ -905,8 +1067,16 @@ const Camera = ({ onClose }) => {
                 {st.previewIndex + 1} / {st.capturedImages.length}
               </div>
               <div className="flex gap-2">
+                {/* Caption button */}
                 <button
-                  onClick={() => downloadPhoto(st.previewImage.src, st.previewImage.ts)}
+                  onClick={() => set({ editingCaption: true, captionDraft: st.previewImage.caption || "" })}
+                  style={{ width:36, height:36, borderRadius:"50%", background:"rgba(255,255,255,0.15)",
+                    border:"none", cursor:"pointer", display:"flex", alignItems:"center",
+                    justifyContent:"center", color:"#fff" }}>
+                  <Icon d={ICONS.caption} size={15} />
+                </button>
+                <button
+                  onClick={() => downloadItem(st.previewImage)}
                   style={{ width:36, height:36, borderRadius:"50%", background:"rgba(255,255,255,0.15)",
                     border:"none", cursor:"pointer", display:"flex", alignItems:"center",
                     justifyContent:"center", color:"#fff" }}>
@@ -922,17 +1092,84 @@ const Camera = ({ onClose }) => {
               </div>
             </div>
 
-            {/* Image */}
-            <motion.img
-              key={st.previewImage.ts}
-              initial={{ scale:0.96, opacity:0 }} animate={{ scale:1, opacity:1 }}
-              exit={{ scale:0.96, opacity:0 }}
-              transition={{ duration:0.2 }}
-              src={st.previewImage.src}
-              alt="Preview"
-              style={{ width:"100%", height:"100%", objectFit:"contain" }}
-              onClick={(e) => e.stopPropagation()}
-            />
+            {/* Media */}
+            {st.previewImage.type === "video" ? (
+              <video
+                src={st.previewImage.src}
+                controls autoPlay loop
+                style={{ width:"100%", height:"100%", objectFit:"contain" }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <motion.img
+                key={st.previewImage.ts}
+                initial={{ scale:0.96, opacity:0 }} animate={{ scale:1, opacity:1 }}
+                exit={{ scale:0.96, opacity:0 }} transition={{ duration:0.2 }}
+                src={st.previewImage.src} alt="Preview"
+                style={{ width:"100%", height:"100%", objectFit:"contain" }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            )}
+
+            {/* Caption editing overlay in preview */}
+            <AnimatePresence>
+              {st.editingCaption && (
+                <motion.div
+                  initial={{ y:60, opacity:0 }} animate={{ y:0, opacity:1 }} exit={{ y:60, opacity:0 }}
+                  style={{ position:"absolute", bottom:0, left:0, right:0, zIndex:20,
+                    background:"rgba(0,0,0,0.92)", padding:"16px",
+                    borderTop:"1px solid rgba(255,255,255,0.1)" }}
+                  onClick={(e) => e.stopPropagation()}>
+                  <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                    <input
+                      ref={captionInputRef}
+                      type="text"
+                      value={st.captionDraft}
+                      onChange={(e) => set({ captionDraft: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          dispatch({ type:"UPDATE_CAPTION", index: st.previewIndex, caption: st.captionDraft });
+                          set({ previewImage: { ...st.previewImage, caption: st.captionDraft } });
+                        }
+                        if (e.key === "Escape") set({ editingCaption: false, captionDraft: "" });
+                      }}
+                      placeholder="Add a caption…"
+                      style={{ flex:1, background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)",
+                        borderRadius:10, padding:"10px 12px", color:"#fff", fontSize:14, outline:"none" }}
+                    />
+                    <button
+                      onClick={() => {
+                        dispatch({ type:"UPDATE_CAPTION", index: st.previewIndex, caption: st.captionDraft });
+                        set({ previewImage: { ...st.previewImage, caption: st.captionDraft } });
+                      }}
+                      style={{ width:40, height:40, borderRadius:"50%", background:"#22c55e",
+                        border:"none", cursor:"pointer", display:"flex", alignItems:"center",
+                        justifyContent:"center", color:"#fff", flexShrink:0 }}>
+                      <Icon d={ICONS.check} size={18} />
+                    </button>
+                    <button
+                      onClick={() => set({ editingCaption: false, captionDraft: "" })}
+                      style={{ width:40, height:40, borderRadius:"50%", background:"rgba(255,255,255,0.1)",
+                        border:"none", cursor:"pointer", display:"flex", alignItems:"center",
+                        justifyContent:"center", color:"rgba(255,255,255,0.5)", flexShrink:0 }}>
+                      <Icon d={ICONS.close} size={16} />
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Caption display */}
+            {st.previewImage.caption && !st.editingCaption && (
+              <div style={{ position:"absolute", bottom:0, left:0, right:0,
+                background:"linear-gradient(transparent, rgba(0,0,0,0.75))",
+                padding:"32px 20px 16px", zIndex:10, pointerEvents:"none" }}>
+                <p style={{ color:"#fff", fontSize:14, textAlign:"center",
+                  fontStyle:"italic", textShadow:"0 1px 6px rgba(0,0,0,0.8)" }}>
+                  "{st.previewImage.caption}"
+                </p>
+              </div>
+            )}
 
             {/* Prev / Next arrows */}
             {st.capturedImages.length > 1 && (
@@ -959,19 +1196,20 @@ const Camera = ({ onClose }) => {
             )}
 
             {/* Mode badge */}
-            <div style={{ position:"absolute", bottom:24, left:"50%", transform:"translateX(-50%)",
+            <div style={{ position:"absolute", bottom: st.previewImage.caption ? 60 : 24,
+              left:"50%", transform:"translateX(-50%)",
               padding:"4px 14px", borderRadius:12, zIndex:10,
               background:"rgba(0,0,0,0.6)",
               color: MODES.find((m) => m.id === st.previewImage.mode)?.color ?? "#fff",
               fontSize:10, fontWeight:700, letterSpacing:"0.08em" }}>
-              {st.previewImage.mode?.toUpperCase()}
+              {st.previewImage.mode?.toUpperCase()} {st.previewImage.type === "video" ? "· VIDEO" : ""}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* ══════════════════════════════════════════════════════════════
-          GALLERY GRID
+          GALLERY — with album tabs (All / Videos / per-mode albums)
          ══════════════════════════════════════════════════════════════ */}
       <AnimatePresence>
         {st.showGallery && (
@@ -988,12 +1226,14 @@ const Camera = ({ onClose }) => {
               onClick={(e) => e.stopPropagation()}
               style={{ position:"absolute", bottom:0, left:0, right:0,
                 background:"rgba(14,14,20,0.98)", borderRadius:"20px 20px 0 0",
-                padding:20, maxHeight:"85vh", overflowY:"auto",
+                maxHeight:"90vh", overflowY:"auto",
                 border:"1px solid rgba(255,255,255,0.08)" }}>
 
-              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
+              {/* Header */}
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+                padding:"16px 20px 8px" }}>
                 <span style={{ color:"#fff", fontWeight:700, fontSize:16 }}>
-                  Gallery · {st.capturedImages.length} Photos
+                  Gallery · {filteredImages.length}
                 </span>
                 <button onClick={() => set({ showGallery:false })}
                   style={{ background:"none", border:"none", color:"rgba(255,255,255,0.5)", cursor:"pointer" }}>
@@ -1001,40 +1241,81 @@ const Camera = ({ onClose }) => {
                 </button>
               </div>
 
-              {st.capturedImages.length === 0 ? (
+              {/* Album tabs */}
+              <div style={{ display:"flex", gap:6, overflowX:"auto", padding:"0 16px 12px",
+                scrollbarWidth:"none" }}>
+                {ALBUMS.map((album) => {
+                  const active = st.galleryAlbum === album.id;
+                  const col = album.color || (album.id === "video" ? "#f87171" : "#60a5fa");
+                  return (
+                    <button key={album.id}
+                      onClick={() => set({ galleryAlbum: album.id })}
+                      style={{ flexShrink:0, padding:"5px 14px", borderRadius:16,
+                        background: active ? col+"28" : "rgba(255,255,255,0.07)",
+                        border: active ? `1px solid ${col}55` : "1px solid rgba(255,255,255,0.1)",
+                        color: active ? col : "rgba(255,255,255,0.5)",
+                        fontSize:11, fontWeight: active ? 700 : 400, cursor:"pointer",
+                        letterSpacing:"0.06em", transition:"all 0.15s" }}>
+                      {album.id === "video" && "▶ "}{album.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {filteredImages.length === 0 ? (
                 <div style={{ textAlign:"center", color:"rgba(255,255,255,0.3)", padding:"40px 0" }}>
-                  <Icon d={ICONS.photo} size={40} className="mx-auto mb-3 opacity-30" />
-                  <p style={{ fontSize:14 }}>No photos yet</p>
+                  <Icon d={st.galleryAlbum === "video" ? ICONS.video : ICONS.photo} size={40}
+                    className="mx-auto mb-3 opacity-30" />
+                  <p style={{ fontSize:14 }}>No {st.galleryAlbum === "video" ? "videos" : "photos"} yet</p>
                 </div>
               ) : (
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:4 }}>
-                  {st.capturedImages.map((img, i) => (
-                    <motion.div key={img.ts}
-                      initial={{ opacity:0, scale:0.85 }} animate={{ opacity:1, scale:1 }}
-                      transition={{ delay: i * 0.03 }}
-                      whileTap={{ scale:0.96 }}
-                      style={{ position:"relative", aspectRatio:"1", borderRadius:8,
-                        overflow:"hidden", cursor:"pointer" }}
-                      onClick={() => openPreview(i)}>
-                      <img src={img.src} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} />
-                      {/* Mode badge on thumbnail */}
-                      <div style={{ position:"absolute", bottom:4, left:4,
-                        padding:"2px 6px", borderRadius:6, background:"rgba(0,0,0,0.65)",
-                        color: MODES.find((m) => m.id === img.mode)?.color ?? "#fff",
-                        fontSize:8, fontWeight:700, letterSpacing:"0.06em" }}>
-                        {img.mode?.toUpperCase()}
-                      </div>
-                      {/* Download icon on hover */}
-                      <button
-                        onClick={(e) => { e.stopPropagation(); downloadPhoto(img.src, img.ts); }}
-                        style={{ position:"absolute", top:4, right:4,
-                          width:24, height:24, borderRadius:"50%",
-                          background:"rgba(0,0,0,0.6)", border:"none", cursor:"pointer",
-                          display:"flex", alignItems:"center", justifyContent:"center", color:"#fff" }}>
-                        <Icon d={ICONS.download} size={12} />
-                      </button>
-                    </motion.div>
-                  ))}
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:3, padding:"0 3px 20px" }}>
+                  {filteredImages.map((img, i) => {
+                    const realIdx = st.capturedImages.indexOf(img);
+                    return (
+                      <motion.div key={img.ts}
+                        initial={{ opacity:0, scale:0.85 }} animate={{ opacity:1, scale:1 }}
+                        transition={{ delay: i * 0.02 }}
+                        whileTap={{ scale:0.96 }}
+                        style={{ position:"relative", aspectRatio:"1", borderRadius:6,
+                          overflow:"hidden", cursor:"pointer" }}
+                        onClick={() => openPreview(realIdx)}>
+                        {img.type === "video" ? (
+                          <div style={{ width:"100%", height:"100%",
+                            background:"rgba(30,30,40,0.9)",
+                            display:"flex", alignItems:"center", justifyContent:"center" }}>
+                            <Icon d={ICONS.video} size={28} className="opacity-70" />
+                          </div>
+                        ) : (
+                          <img src={img.src} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} />
+                        )}
+                        {/* Caption indicator */}
+                        {img.caption && (
+                          <div style={{ position:"absolute", top:4, left:4, width:16, height:16,
+                            borderRadius:"50%", background:"rgba(0,0,0,0.7)",
+                            display:"flex", alignItems:"center", justifyContent:"center" }}>
+                            <Icon d={ICONS.caption} size={9} />
+                          </div>
+                        )}
+                        {/* Mode badge */}
+                        <div style={{ position:"absolute", bottom:3, left:3,
+                          padding:"1px 5px", borderRadius:5, background:"rgba(0,0,0,0.65)",
+                          color: MODES.find((m) => m.id === img.mode)?.color ?? "#fff",
+                          fontSize:7, fontWeight:700, letterSpacing:"0.06em" }}>
+                          {img.mode?.toUpperCase()}
+                        </div>
+                        {/* Download */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); downloadItem(img); }}
+                          style={{ position:"absolute", top:3, right:3,
+                            width:22, height:22, borderRadius:"50%",
+                            background:"rgba(0,0,0,0.6)", border:"none", cursor:"pointer",
+                            display:"flex", alignItems:"center", justifyContent:"center", color:"#fff" }}>
+                          <Icon d={ICONS.download} size={11} />
+                        </button>
+                      </motion.div>
+                    );
+                  })}
                 </div>
               )}
             </motion.div>
@@ -1072,7 +1353,7 @@ const Camera = ({ onClose }) => {
               { label:"FACES",        value:`${st.faceCount} detected`, color:"#f472b6" },
               { label:"AI SCENE",     value: st.aiScene || "—",        color:"#fb923c" },
               { label:"HDR",          value: st.hdr ? "ON" : "OFF",    color: st.hdr ? "#4ade80" : "#6b7280" },
-              { label:"CAPTURES",     value:`${st.capturedImages.length} photos`, color:"#a78bfa" },
+              { label:"CAPTURES",     value:`${st.capturedImages.length} items`, color:"#a78bfa" },
               { label:"BRIGHTNESS",   value: st.brightness,            color:"#60a5fa" },
               { label:"ISO",          value: st.iso,                   color:"#facc15" },
               { label:"FACING",       value: st.facingMode === "environment" ? "REAR" : "FRONT", color:"#34d399" },
