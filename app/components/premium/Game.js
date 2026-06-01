@@ -463,6 +463,7 @@ const Game = ({ game, setGame }) => {
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6"
+        style={{ bottom: "var(--taskbar-height, 52px)" }}
         style={{
           background: "radial-gradient(ellipse at 50% 0%, rgba(30,58,138,0.4) 0%, rgba(0,0,0,0.85) 100%)",
           backdropFilter: "blur(20px)",

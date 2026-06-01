@@ -470,6 +470,7 @@ const Camera = ({ onClose }) => {
       ref={rootRef}
       className="fixed inset-0 z-50 flex flex-col"
       style={{
+        bottom: "var(--taskbar-height, 52px)",
         background: "#000",
         fontFamily: "'SF Pro Display', '-apple-system', 'Helvetica Neue', sans-serif",
       }}

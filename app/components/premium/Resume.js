@@ -63,6 +63,7 @@ const Resume = ({ onClose }) => {
   return (
     <motion.div 
       className="fixed inset-0 z-50 bg-white dark:bg-gray-900"
+      style={{ bottom: "var(--taskbar-height, 52px)" }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -87,7 +88,7 @@ const Resume = ({ onClose }) => {
         <div className="flex flex-col md:flex-row min-h-full">
 
           {/* Left Panel */}
-          <motion.div 
+          <motion.div
             className="md:w-1/3 p-6 bg-gray-50 dark:bg-gray-800 md:sticky md:top-16 md:h-[calc(100vh-64px)] md:overflow-y-auto"
             initial={{ x: -20, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
@@ -137,8 +138,8 @@ const Resume = ({ onClose }) => {
 
                 {/* Phone */}
                 <li>
-                  <a 
-                    href="tel:+14165056927" 
+                  <a
+                    href="tel:+14165056927"
                     className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 rounded-xl shadow-[0_6px_20px_rgba(0,0,0,0.15)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.2)] transition-shadow text-gray-800 dark:text-white font-medium"
                   >
                     <FiPhone className="text-blue-500 mr-3 text-xl" />
@@ -148,9 +149,9 @@ const Resume = ({ onClose }) => {
 
                 {/* LinkedIn */}
                 <li>
-                  <a 
-                    href="https://www.linkedin.com/in/rasheed-tajudeen-614606374" 
-                    target="_blank" 
+                  <a
+                    href="https://www.linkedin.com/in/rasheed-tajudeen-614606374"
+                    target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 rounded-xl shadow-[0_6px_20px_rgba(0,0,0,0.15)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.2)] transition-shadow text-gray-800 dark:text-white font-medium"
                   >
@@ -161,9 +162,9 @@ const Resume = ({ onClose }) => {
 
                 {/* GitHub */}
                 <li>
-                  <a 
-                    href="https://github.com/dascott1990" 
-                    target="_blank" 
+                  <a
+                    href="https://github.com/dascott1990"
+                    target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 rounded-xl shadow-[0_6px_20px_rgba(0,0,0,0.15)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.2)] transition-shadow text-gray-800 dark:text-white font-medium"
                   >
@@ -197,7 +198,7 @@ const Resume = ({ onClose }) => {
           </motion.div>
 
           {/* Right Panel */}
-          <motion.div 
+          <motion.div
             className="md:w-2/3 p-6"
             initial={{ x: 20, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
@@ -216,7 +217,7 @@ const Resume = ({ onClose }) => {
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Experience</h2>
               <div className="space-y-6">
                 {experiences.map((exp, index) => (
-                  <motion.div 
+                  <motion.div
                     key={index}
                     className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700"
                     whileHover={{ y: -2 }}

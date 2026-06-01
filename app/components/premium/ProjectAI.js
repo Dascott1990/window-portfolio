@@ -706,6 +706,7 @@ const ProjectAI = ({ onClose }) => {
       exit={{ opacity: 0 }}
       style={{
         position: "fixed", inset: 0, zIndex: 50,
+        bottom: "var(--taskbar-height, 52px)",
         background: "rgba(0,0,0,0.75)",
         backdropFilter: "blur(24px)",
         display: "flex", alignItems: "center", justifyContent: "center",

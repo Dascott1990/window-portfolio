@@ -163,7 +163,7 @@ const MapApp = ({ mapOpen, setMapOpen }) => {
         exit={{ opacity: 0, scale: 0.95 }}
         transition={{ type: "spring", damping: 25, stiffness: 300 }}
         className={`fixed inset-0 ${isFullscreen ? '' : 'p-4 sm:p-6'} ${darkMode ? 'dark' : ''}`}
-        style={{ zIndex: 100 }}
+        style={{ zIndex: 100, bottom: "var(--taskbar-height, 52px)" }}
       >
         <div className={`absolute inset-0 rounded-xl overflow-hidden flex flex-col ${
           darkMode ? 'bg-gray-900/90' : 'bg-white/90'
