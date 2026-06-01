@@ -120,6 +120,7 @@ const Camera = ({ onClose }) => {
   const recTimerRef  = useRef(null);
   const mediaRecRef  = useRef(null);
   const recChunks    = useRef([]);
+  const recStartRef  = useRef(0);
   const fpsFrames    = useRef([]);
   const timerRef     = useRef(null);
   const rootRef      = useRef(null);
@@ -150,13 +151,28 @@ const Camera = ({ onClose }) => {
       if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: st.facingMode, width: { ideal: 3840 }, height: { ideal: 2160 }, frameRate: { ideal: 60 } },
-        audio: st.mode === "video",
+        audio: true,
       });
       streamRef.current = stream;
-      if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(() => {});
+      }
       note(`Camera ready · ${st.facingMode === "environment" ? "Rear" : "Front"}`);
-    } catch { note("⚠ Camera access denied"); }
-  }, [st.facingMode, st.mode, note]);
+    } catch {
+      // Retry without audio if audio fails
+      try {
+        if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: st.facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false,
+        });
+        streamRef.current = stream;
+        if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play().catch(() => {}); }
+        note(`Camera ready (no mic) · ${st.facingMode === "environment" ? "Rear" : "Front"}`);
+      } catch { note("⚠ Camera access denied"); }
+    }
+  }, [st.facingMode, note]);
 
   useEffect(() => { startCamera(); }, [st.facingMode]); // eslint-disable-line
 
@@ -244,18 +260,28 @@ const Camera = ({ onClose }) => {
     canvas.width  = video.videoWidth  || 1280;
     canvas.height = video.videoHeight || 720;
     const ctx = canvas.getContext("2d");
+    ctx.save();
+
+    // Mirror front camera to match viewfinder
+    if (st.facingMode === "user") {
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+    }
+
     if (st.mode === "night") {
       for (let f = 0; f < 4; f++) {
         ctx.globalAlpha = 0.25;
         ctx.filter = `brightness(${1.2 + f * 0.15}) ${liveFilter}`;
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       }
-      ctx.globalAlpha = 1; ctx.filter = "";
+      ctx.globalAlpha = 1; ctx.filter = "none";
     } else {
-      ctx.filter = liveFilter;
+      ctx.filter = liveFilter || "none";
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      ctx.filter = "";
+      ctx.filter = "none";
     }
+    ctx.restore();
+
     if (st.mode === "cinematic") {
       const barH = canvas.height * 0.08;
       ctx.fillStyle = "#000";
@@ -269,7 +295,7 @@ const Camera = ({ onClose }) => {
     const dataUrl = canvas.toDataURL("image/jpeg", 0.96);
     dispatch({ type: "ADD_IMAGE", img: { src: dataUrl, mode: st.mode, ts: Date.now() } });
     if (!fromBurst) note(`✓ Photo saved · ${st.mode.toUpperCase()}`);
-  }, [st.mode, liveFilter, note]);
+  }, [st.mode, st.facingMode, liveFilter, note]);
 
   const captureBurst = useCallback(async () => {
     set({ burstCount: 0 }); note("Burst: capturing 10 frames…");
@@ -301,16 +327,25 @@ const Camera = ({ onClose }) => {
       } else {
         const stream = streamRef.current; if (!stream) return;
         recChunks.current = [];
-        const mr = new MediaRecorder(stream, { mimeType: "video/webm;codecs=vp9" });
+        // Pick a supported mimeType
+        const mimeType = ["video/webm;codecs=vp9","video/webm;codecs=vp8","video/webm","video/mp4"]
+          .find((t) => MediaRecorder.isTypeSupported(t)) || "";
+        const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {});
         mr.ondataavailable = (e) => recChunks.current.push(e.data);
         mr.onstop = () => {
-          const blob = new Blob(recChunks.current, { type: "video/webm" });
+          const blobType = mr.mimeType || "video/webm";
+          const ext = blobType.includes("mp4") ? "mp4" : "webm";
+          const blob = new Blob(recChunks.current, { type: blobType });
           const a = document.createElement("a");
-          a.href = URL.createObjectURL(blob); a.download = `neural-cam-${Date.now()}.webm`; a.click();
+          a.href = URL.createObjectURL(blob); a.download = `neural-cam-${Date.now()}.${ext}`; a.click();
         };
         mr.start(100); mediaRecRef.current = mr;
+        recStartRef.current = Date.now();
         set({ isRecording: true, recordSeconds: 0 });
-        recTimerRef.current = setInterval(() => set({ recordSeconds: s => s + 1 }), 1000);
+        recTimerRef.current = setInterval(() => {
+          const elapsed = Math.floor((Date.now() - recStartRef.current) / 1000);
+          set({ recordSeconds: elapsed });
+        }, 500);
       }
     } else if (st.mode === "burst") {
       captureBurst();
@@ -651,10 +686,17 @@ const Camera = ({ onClose }) => {
           <motion.button
             whileTap={{ scale:0.9 }}
             onClick={(e) => { e.stopPropagation(); openPreview(0); }}
-            style={{ position:"absolute", bottom:16, left:16, zIndex:20,
+            style={{ position:"absolute", bottom:16, left:16, zIndex:35,
               width:52, height:52, borderRadius:10, overflow:"hidden",
-              border:"2px solid rgba(255,255,255,0.7)", cursor:"pointer", background:"#000" }}>
-            <img src={lastPhoto.src} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} />
+              border:"1.5px solid rgba(255,255,255,0.5)",
+              cursor:"pointer", background:"transparent",
+              boxShadow:"0 2px 16px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.1)" }}>
+            <img src={lastPhoto.src} alt=""
+              style={{ width:"100%", height:"100%", objectFit:"cover", opacity:0.72 }} />
+            {/* Subtle glassy overlay for mirror effect */}
+            <div style={{ position:"absolute", inset:0,
+              background:"linear-gradient(135deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.04) 50%, rgba(0,0,0,0.12) 100%)",
+              backdropFilter:"blur(0px)", pointerEvents:"none" }} />
             {st.capturedImages.length > 1 && (
               <div style={{ position:"absolute", bottom:2, right:4, color:"#fff", fontSize:9,
                 fontWeight:700, textShadow:"0 1px 3px #000" }}>
