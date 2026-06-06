@@ -1,41 +1,58 @@
-// ./premium/Calendar.js
-import React, { useState, useEffect } from "react";
+"use client";
+// ./premium/Calendar.js  — backend-connected
+import React, { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  FaCalendarAlt, FaPlus, FaBell, FaTrash, FaEdit, FaChevronLeft, FaChevronRight,
-} from "react-icons/fa";
-import { FiX } from "react-icons/fi";
+import { FaCalendarAlt, FaPlus, FaBell, FaTrash, FaChevronLeft, FaChevronRight } from "react-icons/fa";
+import { FiX, FiLoader } from "react-icons/fi";
+import { eventsAPI } from "../../lib/api";
 
-const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTHS = [
-  "January","February","March","April","May","June",
-  "July","August","September","October","November","December",
-];
+const DAYS   = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
 const isSameDay = (a, b) =>
   a.getFullYear() === b.getFullYear() &&
-  a.getMonth() === b.getMonth() &&
-  a.getDate() === b.getDate();
+  a.getMonth()    === b.getMonth()    &&
+  a.getDate()     === b.getDate();
+
+const toDateStr = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 
 const Calendar = ({ onClose }) => {
-  const today = new Date();
-  const [viewDate, setViewDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
-  const [selectedDate, setSelectedDate] = useState(today);
-  const [events, setEvents] = useState([]);
-  const [showForm, setShowForm] = useState(false);
-  const [newEvent, setNewEvent] = useState({ title: "", time: "" });
-  const [alert, setAlert] = useState("");
-  const [currentTime, setCurrentTime] = useState(new Date());
+  const today   = new Date();
+  const [viewDate,      setViewDate]      = useState(new Date(today.getFullYear(), today.getMonth(), 1));
+  const [selectedDate,  setSelectedDate]  = useState(today);
+  const [events,        setEvents]        = useState([]);
+  const [loading,       setLoading]       = useState(false);
+  const [saving,        setSaving]        = useState(false);
+  const [showForm,      setShowForm]      = useState(false);
+  const [newEvent,      setNewEvent]      = useState({ title: "", time: "09:00", reminder_email: "" });
+  const [alert,         setAlert]         = useState("");
+  const [currentTime,   setCurrentTime]   = useState(new Date());
 
   useEffect(() => {
     const t = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
 
-  // Reminder check
+  // ── Fetch events for current month ────────────────────────────────────────
+  const fetchMonth = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await eventsAPI.listByMonth(viewDate.getFullYear(), viewDate.getMonth() + 1);
+      setEvents(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Events fetch failed:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [viewDate]);
+
+  useEffect(() => { fetchMonth(); }, [fetchMonth]);
+
+  // ── Reminder check ────────────────────────────────────────────────────────
   useEffect(() => {
     events.forEach((ev) => {
-      const evTime = new Date(`${ev.dateStr}T${ev.time}`);
+      const evTime = new Date(`${ev.event_date}T${ev.event_time}`);
       if (Math.abs(currentTime - evTime) < 1000) {
         setAlert(`🔔 ${ev.title} starts now!`);
         setTimeout(() => setAlert(""), 5000);
@@ -43,33 +60,51 @@ const Calendar = ({ onClose }) => {
     });
   }, [currentTime, events]);
 
-  // Build calendar grid
-  const firstDay = viewDate.getDay();
-  const daysInMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate();
-  const cells = [];
-  for (let i = 0; i < firstDay; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  // ── Calendar grid ─────────────────────────────────────────────────────────
+  const firstDay     = viewDate.getDay();
+  const daysInMonth  = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate();
+  const cells        = [...Array(firstDay).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
 
-  const prevMonth = () =>
-    setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
-  const nextMonth = () =>
-    setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
+  const prevMonth = () => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
+  const nextMonth = () => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
 
-  const selectedDateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, "0")}-${String(selectedDate.getDate()).padStart(2, "0")}`;
-  const dayEvents = events.filter((e) => e.dateStr === selectedDateStr);
-
-  const addEvent = () => {
-    if (!newEvent.title.trim() || !newEvent.time) return;
-    setEvents((prev) => [...prev, { ...newEvent, dateStr: selectedDateStr, id: Date.now() }]);
-    setNewEvent({ title: "", time: "" });
-    setShowForm(false);
-  };
-
-  const deleteEvent = (id) => setEvents((prev) => prev.filter((e) => e.id !== id));
+  const selectedDateStr = toDateStr(selectedDate);
+  const dayEvents       = events.filter((e) => e.event_date === selectedDateStr);
 
   const hasEvents = (d) => {
-    const str = `${viewDate.getFullYear()}-${String(viewDate.getMonth() + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-    return events.some((e) => e.dateStr === str);
+    const str = `${viewDate.getFullYear()}-${String(viewDate.getMonth() + 1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    return events.some((e) => e.event_date === str);
+  };
+
+  // ── Add event ─────────────────────────────────────────────────────────────
+  const addEvent = async () => {
+    if (!newEvent.title.trim() || !newEvent.time) return;
+    setSaving(true);
+    try {
+      const created = await eventsAPI.create({
+        title:          newEvent.title,
+        event_date:     selectedDateStr,
+        event_time:     newEvent.time,
+        reminder_email: newEvent.reminder_email || undefined,
+        reminder:       newEvent.reminder_email ? "15min" : undefined,
+      });
+      setEvents((prev) => [...prev, created]);
+      setNewEvent({ title: "", time: "09:00", reminder_email: "" });
+      setShowForm(false);
+    } catch (err) {
+      alert("Failed to save event: " + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteEvent = async (id) => {
+    try {
+      await eventsAPI.remove(id);
+      setEvents((prev) => prev.filter((e) => e.id !== id));
+    } catch (err) {
+      console.error("Delete failed:", err);
+    }
   };
 
   return (
@@ -95,66 +130,50 @@ const Calendar = ({ onClose }) => {
             <div className="flex items-center gap-2">
               <FaCalendarAlt className="text-white/80" />
               <span className="text-white font-semibold">Calendar</span>
+              {loading && <FiLoader className="animate-spin text-white/60 ml-1" size={12} />}
             </div>
             <div className="text-white/70 text-xs tabular-nums hidden sm:block">
               {currentTime.toLocaleTimeString()}
             </div>
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-full hover:bg-white/20 text-white transition-colors"
-            >
+            <button onClick={onClose} className="p-1.5 rounded-full hover:bg-white/20 text-white">
               <FiX size={16} />
             </button>
           </div>
 
           <div className="flex flex-col sm:flex-row flex-1 overflow-hidden">
-            {/* Left: Month grid */}
+            {/* Month grid */}
             <div className="sm:w-64 flex-shrink-0 p-4 border-b sm:border-b-0 sm:border-r border-white/8">
-              {/* Month nav */}
               <div className="flex items-center justify-between mb-4">
-                <button
-                  onClick={prevMonth}
-                  className="p-1.5 rounded-lg hover:bg-white/8 text-gray-400 hover:text-white transition-colors"
-                >
+                <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-white/8 text-gray-400 hover:text-white">
                   <FaChevronLeft size={12} />
                 </button>
                 <span className="text-white text-sm font-semibold">
                   {MONTHS[viewDate.getMonth()]} {viewDate.getFullYear()}
                 </span>
-                <button
-                  onClick={nextMonth}
-                  className="p-1.5 rounded-lg hover:bg-white/8 text-gray-400 hover:text-white transition-colors"
-                >
+                <button onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-white/8 text-gray-400 hover:text-white">
                   <FaChevronRight size={12} />
                 </button>
               </div>
 
-              {/* Day headers */}
               <div className="grid grid-cols-7 mb-1">
                 {DAYS.map((d) => (
-                  <div key={d} className="text-center text-gray-500 text-[10px] font-semibold py-1">
-                    {d[0]}
-                  </div>
+                  <div key={d} className="text-center text-gray-500 text-[10px] font-semibold py-1">{d[0]}</div>
                 ))}
               </div>
 
-              {/* Cells */}
               <div className="grid grid-cols-7 gap-0.5">
                 {cells.map((d, i) => {
                   if (!d) return <div key={`e-${i}`} />;
-                  const thisDate = new Date(viewDate.getFullYear(), viewDate.getMonth(), d);
-                  const isToday = isSameDay(thisDate, today);
+                  const thisDate   = new Date(viewDate.getFullYear(), viewDate.getMonth(), d);
+                  const isToday    = isSameDay(thisDate, today);
                   const isSelected = isSameDay(thisDate, selectedDate);
-                  const hasDot = hasEvents(d);
-
+                  const hasDot     = hasEvents(d);
                   return (
                     <button
                       key={d}
                       onClick={() => setSelectedDate(thisDate)}
-                      className={`
-                        relative flex flex-col items-center justify-center h-8 rounded-lg text-xs font-medium transition-colors
-                        ${isSelected ? "bg-blue-600 text-white" : isToday ? "bg-blue-600/20 text-blue-400" : "text-gray-300 hover:bg-white/8"}
-                      `}
+                      className={`relative flex flex-col items-center justify-center h-8 rounded-lg text-xs font-medium transition-colors
+                        ${isSelected ? "bg-blue-600 text-white" : isToday ? "bg-blue-600/20 text-blue-400" : "text-gray-300 hover:bg-white/8"}`}
                     >
                       {d}
                       {hasDot && (
@@ -166,9 +185,8 @@ const Calendar = ({ onClose }) => {
               </div>
             </div>
 
-            {/* Right: Day view */}
+            {/* Day view */}
             <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Day header */}
               <div className="flex items-center justify-between px-5 py-3 border-b border-white/8 flex-shrink-0">
                 <div>
                   <p className="text-white font-semibold text-sm">
@@ -223,16 +241,21 @@ const Calendar = ({ onClose }) => {
                         onChange={(e) => setNewEvent({ ...newEvent, time: e.target.value })}
                         className="px-3 py-2 rounded-lg bg-white/6 border border-white/10 text-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />
+                      <input
+                        type="email"
+                        placeholder="Reminder email (optional)"
+                        value={newEvent.reminder_email}
+                        onChange={(e) => setNewEvent({ ...newEvent, reminder_email: e.target.value })}
+                        className="flex-1 min-w-[160px] px-3 py-2 rounded-lg bg-white/6 border border-white/10 text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
                       <button
                         onClick={addEvent}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
+                        disabled={saving}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors disabled:opacity-50"
                       >
-                        Save
+                        {saving ? "…" : "Save"}
                       </button>
-                      <button
-                        onClick={() => setShowForm(false)}
-                        className="px-4 py-2 bg-white/6 hover:bg-white/10 text-gray-300 text-sm rounded-lg transition-colors"
-                      >
+                      <button onClick={() => setShowForm(false)} className="px-4 py-2 bg-white/6 hover:bg-white/10 text-gray-300 text-sm rounded-lg transition-colors">
                         Cancel
                       </button>
                     </div>
@@ -244,11 +267,7 @@ const Calendar = ({ onClose }) => {
               <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
                 <AnimatePresence>
                   {dayEvents.length === 0 ? (
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="flex flex-col items-center justify-center h-32 text-gray-600"
-                    >
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center h-32 text-gray-600">
                       <FaCalendarAlt size={28} className="mb-2 opacity-30" />
                       <p className="text-sm">No events this day</p>
                     </motion.div>
@@ -262,10 +281,10 @@ const Calendar = ({ onClose }) => {
                         className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/8 group"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0" />
+                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: ev.color || "#3b82f6" }} />
                           <div>
                             <p className="text-white text-sm font-medium">{ev.title}</p>
-                            <p className="text-gray-400 text-xs">{ev.time}</p>
+                            <p className="text-gray-400 text-xs">{ev.event_time?.slice(0, 5)}</p>
                           </div>
                         </div>
                         <button

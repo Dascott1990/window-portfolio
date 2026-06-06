@@ -25,6 +25,7 @@ import { BiSolidFilePdf } from "react-icons/bi";
 import {
   FaGamepad, FaRegMoon, FaRegSun, FaMusic,
   FaMapMarkerAlt, FaCalendarAlt, FaRobot, FaCamera, FaChartLine,
+  FaCreditCard,
 } from "react-icons/fa";
 import { MdEmail, MdHealthAndSafety } from "react-icons/md";
 import { motion, AnimatePresence } from "framer-motion";
@@ -50,6 +51,7 @@ const ICON_DEFS = [
   { id: "health",   icon: <MdHealthAndSafety size={36} className="text-pink-400" />, label: "Health", color: "from-pink-400/20 to-rose-600/20" },
   { id: "camera",   icon: <FaCamera size={32} className="text-cyan-400" />,       label: "Camera",   color: "from-cyan-400/20 to-teal-600/20" },
   { id: "assets",   icon: <FaChartLine size={32} className="text-teal-400" />,    label: "Assets",   color: "from-teal-400/20 to-green-600/20" },
+  { id: "fintech",  icon: <FaCreditCard size={32} className="text-blue-400" />,   label: "NovaPay",  color: "from-blue-400/20 to-indigo-600/20" },
 ];
 
 // Mobile icon sizes — static, avoids cloneElement per render
@@ -65,6 +67,7 @@ const DesktopItems = ({
   setMusicOpen,
   setMapOpen,
   setShowModal,
+  setShowFintech,
 }) => {
   const [darkMode,       setDarkMode]       = useState(false);
   const [time,           setTime]           = useState(new Date());
@@ -113,7 +116,8 @@ const DesktopItems = ({
     health:   () => setShowHealth(true),
     camera:   () => setShowCamera(true),
     assets:   () => setShowAssetNews(true),
-  }), [setShowModal, setGame, setMusicOpen, setMapOpen]); // eslint-disable-line
+    fintech:  () => setShowFintech?.(true),
+  }), [setShowModal, setGame, setMusicOpen, setMapOpen, setShowFintech]); // eslint-disable-line
 
   const handleIconClick = useCallback((id) => {
     setSelectedIcon(id);

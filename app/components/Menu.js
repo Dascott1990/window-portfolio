@@ -5,7 +5,7 @@ import { BiChevronUp, BiChevronDown } from "react-icons/bi";
 import { FiSearch, FiPower, FiX } from "react-icons/fi";
 import {
   FaGamepad, FaMusic, FaMapMarkerAlt, FaCalendarAlt,
-  FaRobot, FaCamera, FaChartLine, FaHeartbeat,
+  FaRobot, FaCamera, FaChartLine, FaHeartbeat, FaCreditCard,
 } from "react-icons/fa";
 import { MdEmail } from "react-icons/md";
 import { VscGithubInverted } from "react-icons/vsc";
@@ -30,6 +30,7 @@ const PINNED_APPS = [
   { id: "ai",          label: "Project AI",  icon: <FaRobot size={24} className="text-indigo-400" />,         type: "action",  category: "apps" },
   { id: "camera",      label: "Camera",      icon: <FaCamera size={22} className="text-cyan-400" />,          type: "action",  category: "apps" },
   { id: "assets",      label: "Assets",      icon: <FaChartLine size={22} className="text-teal-400" />,       type: "action",  category: "apps" },
+  { id: "fintech",     label: "NovaPay",     icon: <FaCreditCard size={22} className="text-blue-400" />,      type: "action",  category: "apps" },
 ];
 
 const PROFILE_FIELDS = [
@@ -50,6 +51,7 @@ const Menu = ({
   setEducation,
   setInfo,
   info,
+  setShowFintech,
 }) => {
   const [search, setSearch]     = useState("");
   const [focused, setFocused]   = useState(null); // keyboard-navigated app id
@@ -73,9 +75,10 @@ const Menu = ({
       experience: () => setexperience(true),
       impact:     () => setImpact(true),
       education:  () => setEducation(true),
+      fintech:    () => setShowFintech?.(true),
     };
     map[id]?.();
-  }, [setShowModal, setexperience, setImpact, setEducation]);
+  }, [setShowModal, setexperience, setImpact, setEducation, setShowFintech]);
 
   const filtered = search.trim()
     ? PINNED_APPS.filter((a) =>

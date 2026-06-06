@@ -110,12 +110,73 @@ function reducer(state, action) {
       );
       return { ...state, capturedImages: imgs, editingCaption: false, captionDraft: "" };
     }
+    case "PATCH_SAVED_ID": {
+      const imgs = state.capturedImages.map((img) =>
+        img.ts === action.ts ? { ...img, savedId: action.savedId } : img
+      );
+      return { ...state, capturedImages: imgs };
+    }
+    case "LOAD_GALLERY": {
+      // Merge backend items; deduplicate by savedId so in-session captures
+      // already in state aren't duplicated when we also get them from backend.
+      const existingIds = new Set(
+        state.capturedImages.map((i) => i.savedId).filter(Boolean)
+      );
+      const fresh = action.items.filter((i) => !existingIds.has(i.savedId));
+      return { ...state, capturedImages: [...state.capturedImages, ...fresh].slice(0, 200) };
+    }
     default: return state;
   }
 }
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const rand  = (lo, hi) => Math.floor(Math.random() * (hi - lo + 1)) + lo;
+
+// ─── Backend API ───────────────────────────────────────────────────────────────
+const CAMERA_API = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001") + "/api/v1/camera";
+
+const cameraAPI = {
+  async savePhoto({ dataUrl, mode, filterName }) {
+    const res = await fetch(`${CAMERA_API}/photo`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data_url: dataUrl, mode: mode || "photo", filter_name: filterName || null }),
+    });
+    if (!res.ok) throw new Error(`Save photo failed: ${res.status}`);
+    return res.json();
+  },
+  async saveVideo({ blob, mode, duration }) {
+    const formData = new FormData();
+    formData.append("file", blob, "recording.webm");
+    formData.append("mode", mode || "video");
+    formData.append("duration", String(duration || 0));
+    const res = await fetch(`${CAMERA_API}/video`, { method: "POST", body: formData });
+    if (!res.ok) throw new Error(`Save video failed: ${res.status}`);
+    return res.json();
+  },
+  async saveEdit({ id, caption }) {
+    const res = await fetch(`${CAMERA_API}/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ caption }),
+    });
+    if (!res.ok) throw new Error(`Save edit failed: ${res.status}`);
+    return res.json();
+  },
+  async deleteItem(id) {
+    const res = await fetch(`${CAMERA_API}/${id}`, { method: "DELETE" });
+    if (!res.ok && res.status !== 204) throw new Error(`Delete failed: ${res.status}`);
+    return true;
+  },
+  // Fetch persisted gallery from backend
+  async getGallery({ album = "all", page = 1, perPage = 100 } = {}) {
+    const res = await fetch(
+      `${CAMERA_API}/gallery?album=${album}&page=${page}&per_page=${perPage}`
+    );
+    if (!res.ok) throw new Error(`Gallery fetch failed: ${res.status}`);
+    return res.json();
+  },
+};
 
 // ─── Main component ───────────────────────────────────────────────────────────
 const Camera = ({ onClose }) => {
@@ -156,6 +217,41 @@ const Camera = ({ onClose }) => {
     showControls();
     return () => clearTimeout(hideTimerRef.current);
   }, []); // eslint-disable-line
+
+  // ── Load persisted gallery from backend on mount ─────────────────────────
+  // Images are stored on the backend filesystem + DB.  On refresh, blob: URLs
+  // from the previous session are dead — we replace them with the permanent
+  // file_url served by the backend.  New captures captured this session already
+  // have a savedId patched in via PATCH_SAVED_ID, so LOAD_GALLERY deduplicates.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+        const res  = await cameraAPI.getGallery({ album: "all", perPage: 100 });
+        if (cancelled) return;
+        const items = (Array.isArray(res.data) ? res.data : []).map((m) => {
+          // file_url is a relative path like /api/v1/camera/<id>/file
+          const src = m.file_url?.startsWith("http")
+            ? m.file_url
+            : `${BASE}${m.file_url}`;
+          return {
+            savedId: m.id,
+            src,
+            mode:    m.filter_name || m.metadata_json?.camera_mode || "photo",
+            caption: m.caption     || "",
+            type:    m.media_type === "video" ? "video" : "photo",
+            ts:      new Date(m.created_at).getTime(),
+          };
+        });
+        if (items.length > 0) dispatch({ type: "LOAD_GALLERY", items });
+      } catch (err) {
+        // Backend unreachable — gallery starts empty; camera still works fully
+        console.warn("Gallery load skipped (backend unreachable):", err.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line — intentionally runs once on mount
 
   // ── Camera stream ───────────────────────────────────────────────────
   const startCamera = useCallback(async () => {
@@ -362,11 +458,27 @@ const Camera = ({ onClose }) => {
   }, [st.mode, st.isRecording, captureBurst, startTimerCapture, set, showControls]);
 
   // Save / discard review item
-  const saveReviewItem = useCallback(() => {
+  const saveReviewItem = useCallback(async () => {
     if (!st.reviewItem) return;
-    dispatch({ type: "ADD_IMAGE", img: st.reviewItem });
+    const item = st.reviewItem;
+    // Add to local state immediately
+    dispatch({ type: "ADD_IMAGE", img: { ...item, savedId: null } });
     set({ reviewItem: null });
-    note(`✓ ${st.reviewItem.type === "video" ? "Video" : "Photo"} saved · ${st.reviewItem.mode.toUpperCase()}`);
+    note(`✓ ${item.type === "video" ? "Video" : "Photo"} saved · ${item.mode.toUpperCase()}`);
+    // Persist to backend in background
+    try {
+      let result;
+      if (item.type === "video" && item.blob) {
+        const duration = Math.round((Date.now() - item.ts) / 1000);
+        result = await cameraAPI.saveVideo({ blob: item.blob, mode: item.mode, duration });
+      } else {
+        result = await cameraAPI.savePhoto({ dataUrl: item.src, mode: item.mode, filterName: item.mode });
+      }
+      // Attach the server ID so edits/deletes can reference it
+      dispatch({ type: "PATCH_SAVED_ID", ts: item.ts, savedId: result.data.id });
+    } catch (err) {
+      console.error("Camera backend save failed:", err);
+    }
   }, [st.reviewItem, set, note]);
 
   const discardReviewItem = useCallback(() => {
@@ -1083,7 +1195,11 @@ const Camera = ({ onClose }) => {
                   <Icon d={ICONS.download} size={16} />
                 </button>
                 <button
-                  onClick={() => dispatch({ type:"DEL_IMAGE", index: st.previewIndex })}
+                  onClick={() => {
+                    const img = st.capturedImages[st.previewIndex];
+                    dispatch({ type:"DEL_IMAGE", index: st.previewIndex });
+                    if (img?.savedId) cameraAPI.deleteItem(img.savedId).catch(console.error);
+                  }}
                   style={{ width:36, height:36, borderRadius:"50%", background:"rgba(239,68,68,0.3)",
                     border:"none", cursor:"pointer", display:"flex", alignItems:"center",
                     justifyContent:"center", color:"#f87171" }}>
@@ -1130,6 +1246,8 @@ const Camera = ({ onClose }) => {
                         if (e.key === "Enter") {
                           dispatch({ type:"UPDATE_CAPTION", index: st.previewIndex, caption: st.captionDraft });
                           set({ previewImage: { ...st.previewImage, caption: st.captionDraft } });
+                          const img = st.capturedImages[st.previewIndex];
+                          if (img?.savedId) cameraAPI.saveEdit({ id: img.savedId, caption: st.captionDraft }).catch(console.error);
                         }
                         if (e.key === "Escape") set({ editingCaption: false, captionDraft: "" });
                       }}
@@ -1141,6 +1259,8 @@ const Camera = ({ onClose }) => {
                       onClick={() => {
                         dispatch({ type:"UPDATE_CAPTION", index: st.previewIndex, caption: st.captionDraft });
                         set({ previewImage: { ...st.previewImage, caption: st.captionDraft } });
+                        const img = st.capturedImages[st.previewIndex];
+                        if (img?.savedId) cameraAPI.saveEdit({ id: img.savedId, caption: st.captionDraft }).catch(console.error);
                       }}
                       style={{ width:40, height:40, borderRadius:"50%", background:"#22c55e",
                         border:"none", cursor:"pointer", display:"flex", alignItems:"center",
