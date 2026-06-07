@@ -74,7 +74,7 @@ const initialState = {
   mode: "photo", facingMode: "environment", flashMode: "off",
   zoom: 1, timer: 0, hdr: false, gridEnabled: false,
   isRecording: false, recordSeconds: 0,
-  capturedImages: [],   // { src, mode, ts, type:"photo"|"video", caption:"", videoBlob }
+  capturedImages: [],
   timerCountdown: null, fps: 0,
   brightness: 0, contrast: 0, saturation: 0, exposure: 0,
   iso: "auto", shutterSpeed: "auto", whiteBalance: "auto",
@@ -83,13 +83,10 @@ const initialState = {
   notification: null, burstCount: 0, beautyLevel: 0,
   controlsVisible: true,
   showGallery: false,
-  galleryAlbum: "all",       // "all" | "video" | mode id
-  // Post-capture review
-  reviewItem: null,          // item pending save/delete
-  // Full-screen preview
+  galleryAlbum: "all",
+  reviewItem: null,
   previewImage: null,
   previewIndex: null,
-  // Caption editing
   editingCaption: false,
   captionDraft: "",
 };
@@ -98,7 +95,7 @@ function reducer(state, action) {
   switch (action.type) {
     case "SET":       return { ...state, ...action.payload };
     case "TOGGLE":    return { ...state, [action.key]: !state[action.key] };
-    case "ADD_IMAGE": return { ...state, capturedImages: [action.img, ...state.capturedImages].slice(0, 120) };
+    case "ADD_IMAGE": return { ...state, capturedImages: [action.img, ...state.capturedImages].slice(0, 200) };
     case "NOTIFY":    return { ...state, notification: action.msg };
     case "DEL_IMAGE": {
       const imgs = state.capturedImages.filter((_, i) => i !== action.index);
@@ -116,9 +113,22 @@ function reducer(state, action) {
       );
       return { ...state, capturedImages: imgs };
     }
+    case "PATCH_SRC_BY_TS": {
+      // Replace src on a gallery item after caption has been burned in
+      const imgs = state.capturedImages.map((img) =>
+        img.ts === action.ts ? { ...img, src: action.src } : img
+      );
+      return { ...state, capturedImages: imgs };
+    }
+    case "PATCH_CAPTION_BY_ID": {
+      // Update caption on a gallery item matched by savedId (for backend-loaded items)
+      const imgs = state.capturedImages.map((img) =>
+        img.savedId === action.savedId ? { ...img, caption: action.caption } : img
+      );
+      return { ...state, capturedImages: imgs };
+    }
     case "LOAD_GALLERY": {
-      // Merge backend items; deduplicate by savedId so in-session captures
-      // already in state aren't duplicated when we also get them from backend.
+      // Merge backend items; deduplicate by savedId
       const existingIds = new Set(
         state.capturedImages.map((i) => i.savedId).filter(Boolean)
       );
@@ -132,15 +142,21 @@ function reducer(state, action) {
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const rand  = (lo, hi) => Math.floor(Math.random() * (hi - lo + 1)) + lo;
 
-// ─── Backend API ───────────────────────────────────────────────────────────────
-const CAMERA_API = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001") + "/api/v1/camera";
+// ─── Backend API ──────────────────────────────────────────────────────────────
+const BASE_URL   = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+const CAMERA_API = `${BASE_URL}/api/v1/camera`;
 
 const cameraAPI = {
-  async savePhoto({ dataUrl, mode, filterName }) {
+  async savePhoto({ dataUrl, mode, caption, filterName }) {
     const res = await fetch(`${CAMERA_API}/photo`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data_url: dataUrl, mode: mode || "photo", filter_name: filterName || null }),
+      body: JSON.stringify({
+        data_url:    dataUrl,
+        mode:        mode        || "photo",
+        caption:     caption     || null,
+        filter_name: filterName  || null,
+      }),
     });
     if (!res.ok) throw new Error(`Save photo failed: ${res.status}`);
     return res.json();
@@ -148,7 +164,7 @@ const cameraAPI = {
   async saveVideo({ blob, mode, duration }) {
     const formData = new FormData();
     formData.append("file", blob, "recording.webm");
-    formData.append("mode", mode || "video");
+    formData.append("mode",     mode     || "video");
     formData.append("duration", String(duration || 0));
     const res = await fetch(`${CAMERA_API}/video`, { method: "POST", body: formData });
     if (!res.ok) throw new Error(`Save video failed: ${res.status}`);
@@ -168,7 +184,6 @@ const cameraAPI = {
     if (!res.ok && res.status !== 204) throw new Error(`Delete failed: ${res.status}`);
     return true;
   },
-  // Fetch persisted gallery from backend
   async getGallery({ album = "all", page = 1, perPage = 100 } = {}) {
     const res = await fetch(
       `${CAMERA_API}/gallery?album=${album}&page=${page}&per_page=${perPage}`
@@ -188,25 +203,25 @@ const Camera = ({ onClose }) => {
     setTimeout(() => dispatch({ type: "NOTIFY", msg: null }), 2800);
   }, []);
 
-  const videoRef     = useRef(null);
-  const canvasRef    = useRef(null);
-  const overlayRef   = useRef(null);
-  const streamRef    = useRef(null);
-  const animFrameRef = useRef(null);
-  const recTimerRef  = useRef(null);
-  const mediaRecRef  = useRef(null);
-  const recChunks    = useRef([]);
-  const recStartRef  = useRef(0);
-  const fpsFrames    = useRef([]);
-  const timerRef     = useRef(null);
-  const rootRef      = useRef(null);
-  const hideTimerRef = useRef(null);
+  const videoRef        = useRef(null);
+  const canvasRef       = useRef(null);
+  const overlayRef      = useRef(null);
+  const streamRef       = useRef(null);
+  const animFrameRef    = useRef(null);
+  const recTimerRef     = useRef(null);
+  const mediaRecRef     = useRef(null);
+  const recChunks       = useRef([]);
+  const recStartRef     = useRef(0);
+  const fpsFrames       = useRef([]);
+  const timerRef        = useRef(null);
+  const rootRef         = useRef(null);
+  const hideTimerRef    = useRef(null);
   const captionInputRef = useRef(null);
 
   const zoomMV = useMotionValue(1);
   useSpring(zoomMV, { stiffness: 200, damping: 22 });
 
-  // ── Auto-hide controls ──────────────────────────────────────────────
+  // ── Auto-hide controls ────────────────────────────────────────────────────
   const showControls = useCallback(() => {
     set({ controlsVisible: true });
     clearTimeout(hideTimerRef.current);
@@ -218,42 +233,32 @@ const Camera = ({ onClose }) => {
     return () => clearTimeout(hideTimerRef.current);
   }, []); // eslint-disable-line
 
-  // ── Load persisted gallery from backend on mount ─────────────────────────
-  // Images are stored on the backend filesystem + DB.  On refresh, blob: URLs
-  // from the previous session are dead — we replace them with the permanent
-  // file_url served by the backend.  New captures captured this session already
-  // have a savedId patched in via PATCH_SAVED_ID, so LOAD_GALLERY deduplicates.
+  // ── Load persisted gallery from backend on mount ──────────────────────────
+  // On refresh, in-memory blob: URLs are dead. We replace all items with
+  // permanent /api/v1/camera/<id>/file URLs served from the database.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
-        const res  = await cameraAPI.getGallery({ album: "all", perPage: 100 });
+        const res = await cameraAPI.getGallery({ album: "all", perPage: 100 });
         if (cancelled) return;
-        const items = (Array.isArray(res.data) ? res.data : []).map((m) => {
-          // file_url is a relative path like /api/v1/camera/<id>/file
-          const src = m.file_url?.startsWith("http")
-            ? m.file_url
-            : `${BASE}${m.file_url}`;
-          return {
-            savedId: m.id,
-            src,
-            mode:    m.filter_name || m.metadata_json?.camera_mode || "photo",
-            caption: m.caption     || "",
-            type:    m.media_type === "video" ? "video" : "photo",
-            ts:      new Date(m.created_at).getTime(),
-          };
-        });
+        const items = (Array.isArray(res.data) ? res.data : []).map((m) => ({
+          savedId: m.id,
+          src:     m.file_url?.startsWith("http") ? m.file_url : `${BASE_URL}${m.file_url}`,
+          mode:    m.filter_name || m.metadata_json?.camera_mode || "photo",
+          caption: m.caption || "",
+          type:    m.media_type === "video" ? "video" : "photo",
+          ts:      new Date(m.created_at).getTime(),
+        }));
         if (items.length > 0) dispatch({ type: "LOAD_GALLERY", items });
       } catch (err) {
-        // Backend unreachable — gallery starts empty; camera still works fully
-        console.warn("Gallery load skipped (backend unreachable):", err.message);
+        console.warn("Gallery load skipped:", err.message);
       }
     })();
     return () => { cancelled = true; };
-  }, []); // eslint-disable-line — intentionally runs once on mount
+  }, []); // eslint-disable-line
 
-  // ── Camera stream ───────────────────────────────────────────────────
+  // ── Camera stream ─────────────────────────────────────────────────────────
   const startCamera = useCallback(async () => {
     try {
       if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
@@ -288,7 +293,7 @@ const Camera = ({ onClose }) => {
     clearTimeout(hideTimerRef.current);
   }, []);
 
-  // ── FPS ─────────────────────────────────────────────────────────────
+  // ── FPS ───────────────────────────────────────────────────────────────────
   useEffect(() => {
     let id;
     const loop = (now) => {
@@ -301,7 +306,7 @@ const Camera = ({ onClose }) => {
     return () => cancelAnimationFrame(id);
   }, [set]);
 
-  // ── AI scene sim ─────────────────────────────────────────────────────
+  // ── AI scene sim ──────────────────────────────────────────────────────────
   useEffect(() => {
     const id = setInterval(() => {
       if (st.mode === "ai" || st.mode === "photo")
@@ -310,7 +315,7 @@ const Camera = ({ onClose }) => {
     return () => clearInterval(id);
   }, [st.mode, set]);
 
-  // ── Canvas overlay ───────────────────────────────────────────────────
+  // ── Canvas overlay ────────────────────────────────────────────────────────
   useEffect(() => {
     const canvas = overlayRef.current;
     if (!canvas) return;
@@ -347,7 +352,7 @@ const Camera = ({ onClose }) => {
     return () => cancelAnimationFrame(id);
   }, [st.mode, st.faceCount, st.scanMode]);
 
-  // ── CSS filter ───────────────────────────────────────────────────────
+  // ── CSS filter ────────────────────────────────────────────────────────────
   const liveFilter = useMemo(() => {
     const base   = FILTERS[st.mode] || "";
     const bright = `brightness(${1 + st.brightness / 100})`;
@@ -357,7 +362,7 @@ const Camera = ({ onClose }) => {
     return `${bright} ${cont} ${sat} ${base} ${beauty}`.trim();
   }, [st.mode, st.brightness, st.contrast, st.saturation, st.beautyLevel]);
 
-  // ── Capture photo ────────────────────────────────────────────────────
+  // ── Capture photo ─────────────────────────────────────────────────────────
   const capturePhoto = useCallback((fromBurst = false) => {
     const video = videoRef.current, canvas = canvasRef.current;
     if (!video || !canvas) return;
@@ -392,10 +397,13 @@ const Camera = ({ onClose }) => {
     const dataUrl = canvas.toDataURL("image/jpeg", 0.96);
     const item = { src: dataUrl, mode: st.mode, ts: Date.now(), type: "photo", caption: "" };
     if (!fromBurst) {
-      // Show review screen
       set({ reviewItem: item });
     } else {
       dispatch({ type: "ADD_IMAGE", img: item });
+      // Auto-save burst frames to backend
+      cameraAPI.savePhoto({ dataUrl, mode: st.mode, filterName: st.mode }).then((result) => {
+        dispatch({ type: "PATCH_SAVED_ID", ts: item.ts, savedId: result.data.id });
+      }).catch(console.error);
     }
   }, [st.mode, st.facingMode, liveFilter, set]);
 
@@ -438,7 +446,6 @@ const Camera = ({ onClose }) => {
           const blob = new Blob(recChunks.current, { type: blobType });
           const url = URL.createObjectURL(blob);
           const ext = blobType.includes("mp4") ? "mp4" : "webm";
-          // Show review screen for video
           const item = { src: url, mode: "video", ts: Date.now(), type: "video", caption: "", ext, blob };
           set({ reviewItem: item });
         };
@@ -457,32 +464,115 @@ const Camera = ({ onClose }) => {
     }
   }, [st.mode, st.isRecording, captureBurst, startTimerCapture, set, showControls]);
 
-  // Save / discard review item
+  // ── Burn caption onto a dataUrl image ────────────────────────────────────
+  // Draws the caption text at the bottom of the image on the canvas, then
+  // returns a new dataUrl with the caption permanently baked into the pixels.
+  // This is the ONLY way the caption appears in the saved/downloaded file —
+  // CSS overlays are invisible to canvas.toDataURL() and backend storage.
+  const burnCaptionToCanvas = useCallback((dataUrl, caption) => {
+    return new Promise((resolve) => {
+      if (!caption || !caption.trim()) { resolve(dataUrl); return; }
+      const img = new window.Image();
+      img.onload = () => {
+        const c   = document.createElement("canvas");
+        c.width   = img.width;
+        c.height  = img.height;
+        const ctx = c.getContext("2d");
+        // Draw original image
+        ctx.drawImage(img, 0, 0);
+        // Measure text
+        const fontSize  = Math.max(24, Math.round(img.width * 0.035));
+        ctx.font        = `italic ${fontSize}px 'SF Pro Display', sans-serif`;
+        const textW     = ctx.measureText(`"${caption}"`).width;
+        const padH      = Math.round(fontSize * 0.6);
+        const padV      = Math.round(fontSize * 0.45);
+        const boxH      = fontSize + padV * 2;
+        const boxY      = img.height - boxH - Math.round(img.height * 0.03);
+        const boxX      = (img.width - textW - padH * 2) / 2;
+        // Semi-transparent pill background
+        ctx.fillStyle   = "rgba(0,0,0,0.55)";
+        ctx.beginPath();
+        ctx.roundRect(boxX, boxY, textW + padH * 2, boxH, boxH / 2);
+        ctx.fill();
+        // Caption text
+        ctx.fillStyle   = "#ffffff";
+        ctx.textBaseline = "middle";
+        ctx.fillText(`"${caption}"`, boxX + padH, boxY + boxH / 2);
+        resolve(c.toDataURL("image/jpeg", 0.96));
+      };
+      img.onerror = () => resolve(dataUrl); // fallback — keep original
+      img.src = dataUrl;
+    });
+  }, []);
+
+  // ── Save review item ──────────────────────────────────────────────────────
+  // ROOT CAUSE OF CAPTION BUG:
+  // set({ reviewItem: { ...st.reviewItem, caption: draft } }) is async —
+  // the closure inside saveReviewItem still holds the OLD reviewItem when
+  // the user presses Save immediately after typing.
+  //
+  // FIX: we determine the final caption by checking BOTH sources:
+  //   1. st.captionDraft  — the live text field value (most up-to-date)
+  //   2. st.reviewItem.caption — set if user pressed the ✓ tick button first
+  // We take whichever is non-empty, preferring captionDraft when editing is
+  // still open, and reviewItem.caption when the tick was already pressed.
   const saveReviewItem = useCallback(async () => {
     if (!st.reviewItem) return;
-    const item = st.reviewItem;
-    // Add to local state immediately
+
+    // Resolve the definitive caption — never trust a single stale source
+    const finalCaption = st.editingCaption
+      ? (st.captionDraft.trim() || st.reviewItem.caption || "")
+      : (st.reviewItem.caption || st.captionDraft.trim() || "");
+
+    const item = {
+      ...st.reviewItem,
+      caption: finalCaption,
+    };
+
+    // Add to local gallery immediately with the correct caption
     dispatch({ type: "ADD_IMAGE", img: { ...item, savedId: null } });
-    set({ reviewItem: null });
+    set({ reviewItem: null, editingCaption: false, captionDraft: "" });
     note(`✓ ${item.type === "video" ? "Video" : "Photo"} saved · ${item.mode.toUpperCase()}`);
-    // Persist to backend in background
+
+    // Persist to backend — caption is burned into the image pixels before upload
     try {
       let result;
       if (item.type === "video" && item.blob) {
         const duration = Math.round((Date.now() - item.ts) / 1000);
         result = await cameraAPI.saveVideo({ blob: item.blob, mode: item.mode, duration });
+        if (finalCaption && result?.data?.id) {
+          await cameraAPI.saveEdit({ id: result.data.id, caption: finalCaption }).catch(console.error);
+        }
       } else {
-        result = await cameraAPI.savePhoto({ dataUrl: item.src, mode: item.mode, filterName: item.mode });
+        // Burn caption into pixels so the stored image file contains it permanently
+        const finalDataUrl = finalCaption
+          ? await burnCaptionToCanvas(item.src, finalCaption)
+          : item.src;
+
+        result = await cameraAPI.savePhoto({
+          dataUrl:    finalDataUrl,
+          mode:       item.mode,
+          caption:    finalCaption || null,  // also stored as DB metadata
+          filterName: item.mode,
+        });
+
+        // Update local gallery src to the caption-burned version so gallery
+        // thumbnail and preview also show the caption baked in
+        if (finalCaption) {
+          dispatch({ type: "PATCH_SRC_BY_TS", ts: item.ts, src: finalDataUrl });
+        }
       }
-      // Attach the server ID so edits/deletes can reference it
-      dispatch({ type: "PATCH_SAVED_ID", ts: item.ts, savedId: result.data.id });
+      if (result?.data?.id) {
+        dispatch({ type: "PATCH_SAVED_ID", ts: item.ts, savedId: result.data.id });
+      }
     } catch (err) {
       console.error("Camera backend save failed:", err);
+      note("⚠ Saved locally — backend unavailable");
     }
-  }, [st.reviewItem, set, note]);
+  }, [st.reviewItem, st.captionDraft, st.editingCaption, set, note, burnCaptionToCanvas]);
 
   const discardReviewItem = useCallback(() => {
-    set({ reviewItem: null });
+    set({ reviewItem: null, editingCaption: false, captionDraft: "" });
     note("Discarded");
   }, [set, note]);
 
@@ -491,7 +581,62 @@ const Camera = ({ onClose }) => {
     set({ facingMode: st.facingMode === "environment" ? "user" : "environment" });
   }, [st.facingMode, set, showControls]);
 
-  // ── Pinch zoom ───────────────────────────────────────────────────────
+  // ── Download ──────────────────────────────────────────────────────────────
+  // Works for both blob: URLs (fresh captures) and backend /file URLs (persisted)
+  const downloadItem = useCallback(async (item) => {
+    try {
+      let href = item.src;
+      // data: URLs (fresh captures with burned caption) — use directly
+      // blob: URLs — use directly
+      // backend /file URLs — fetch bytes to trigger proper Save dialog on mobile
+      if (href.startsWith("http") || href.startsWith("/api")) {
+        const res  = await fetch(href);
+        const blob = await res.blob();
+        href = URL.createObjectURL(blob);
+      }
+      const a = document.createElement("a");
+      a.href     = href;
+      a.download = `neural-cam-${item.ts}.${item.type === "video" ? (item.ext || "webm") : "jpg"}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Only revoke URLs we created ourselves here
+      if (href.startsWith("blob:") && href !== item.src) {
+        setTimeout(() => URL.revokeObjectURL(href), 10000);
+      }
+      note("✓ Downloaded");
+    } catch (err) {
+      console.error("Download failed:", err);
+      note("⚠ Download failed");
+    }
+  }, [note]);
+
+  // ── Preview navigation ────────────────────────────────────────────────────
+  const openPreview = useCallback((index) => {
+    const img = st.capturedImages[index];
+    if (img) set({ showGallery: false, previewImage: img, previewIndex: index });
+  }, [st.capturedImages, set]);
+
+  const prevPreview = useCallback(() => {
+    openPreview(Math.min(st.previewIndex + 1, st.capturedImages.length - 1));
+  }, [st.previewIndex, st.capturedImages.length, openPreview]);
+
+  const nextPreview = useCallback(() => {
+    openPreview(Math.max(st.previewIndex - 1, 0));
+  }, [st.previewIndex, openPreview]);
+
+  // ── Save caption from preview ────────────────────────────────────────────
+  const savePreviewCaption = useCallback(() => {
+    const caption = st.captionDraft;
+    dispatch({ type: "UPDATE_CAPTION", index: st.previewIndex, caption });
+    set({ previewImage: { ...st.previewImage, caption } });
+    const img = st.capturedImages[st.previewIndex];
+    if (img?.savedId) {
+      cameraAPI.saveEdit({ id: img.savedId, caption }).catch(console.error);
+    }
+  }, [st.captionDraft, st.previewIndex, st.previewImage, st.capturedImages, set]);
+
+  // ── Pinch zoom ────────────────────────────────────────────────────────────
   const touchStartRef = useRef(null);
   const onTouchStart = (e) => {
     showControls();
@@ -510,7 +655,7 @@ const Camera = ({ onClose }) => {
     }
   };
 
-  // ── Tap-to-focus ─────────────────────────────────────────────────────
+  // ── Tap-to-focus ──────────────────────────────────────────────────────────
   const [focusRing, setFocusRing] = useState(null);
   const handleViewfinderTap = (e) => {
     if (!st.controlsVisible) { showControls(); return; }
@@ -534,28 +679,6 @@ const Camera = ({ onClose }) => {
     note(`Flash: ${next.toUpperCase()}`);
   }, [st.flashMode, set, note, showControls]);
 
-  const downloadItem = useCallback((item) => {
-    const a = document.createElement("a");
-    a.href = item.src;
-    a.download = `neural-cam-${item.ts}.${item.type === "video" ? (item.ext || "webm") : "jpg"}`;
-    a.click();
-    note("✓ Downloaded");
-  }, [note]);
-
-  // ── Preview navigation ───────────────────────────────────────────────
-  const openPreview = useCallback((index) => {
-    const img = st.capturedImages[index];
-    if (img) set({ showGallery: false, previewImage: img, previewIndex: index });
-  }, [st.capturedImages, set]);
-
-  const prevPreview = useCallback(() => {
-    openPreview(Math.min(st.previewIndex + 1, st.capturedImages.length - 1));
-  }, [st.previewIndex, st.capturedImages.length, openPreview]);
-
-  const nextPreview = useCallback(() => {
-    openPreview(Math.max(st.previewIndex - 1, 0));
-  }, [st.previewIndex, openPreview]);
-
   const PRO_CONTROLS = [
     { label: "EV",  key: "exposure",   min: -3,  max: 3,  step: 0.1 },
     { label: "BR",  key: "brightness", min: -50, max: 50, step: 1 },
@@ -566,7 +689,6 @@ const Camera = ({ onClose }) => {
   const modeColor = MODES.find((m) => m.id === st.mode)?.color ?? "#60a5fa";
   const overlay   = OVERLAYS[st.mode] || {};
 
-  // Gallery album filtering
   const ALBUMS = useMemo(() => {
     const albums = [{ id: "all", label: "All" }, { id: "video", label: "Videos" }];
     const modes = [...new Set(st.capturedImages.filter(i => i.type !== "video").map(i => i.mode))];
@@ -583,10 +705,8 @@ const Camera = ({ onClose }) => {
     return st.capturedImages.filter(i => i.mode === st.galleryAlbum && i.type !== "video");
   }, [st.capturedImages, st.galleryAlbum]);
 
-  // Last photo for thumbnail (most recent non-video, or any)
   const lastPhoto = st.capturedImages[0];
 
-  // Focus caption input when editing
   useEffect(() => {
     if (st.editingCaption && captionInputRef.current) {
       setTimeout(() => captionInputRef.current?.focus(), 100);
@@ -603,19 +723,15 @@ const Camera = ({ onClose }) => {
         fontFamily: "'SF Pro Display', '-apple-system', 'Helvetica Neue', sans-serif",
       }}
     >
-      {/* ── Hidden capture canvas ──────────────────────────────────── */}
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* ══════════════════════════════════════════════════════════════
-          VIEWFINDER
-         ══════════════════════════════════════════════════════════════ */}
+      {/* ══ VIEWFINDER ══════════════════════════════════════════════════════ */}
       <div
         className="relative flex-1 overflow-hidden"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onClick={handleViewfinderTap}
       >
-        {/* Live video */}
         <video
           ref={videoRef}
           autoPlay playsInline muted
@@ -627,7 +743,6 @@ const Camera = ({ onClose }) => {
           }}
         />
 
-        {/* AI overlay canvas */}
         <canvas
           ref={overlayRef}
           width={typeof window !== "undefined" ? window.innerWidth : 1280}
@@ -636,7 +751,6 @@ const Camera = ({ onClose }) => {
           style={{ zIndex: 3 }}
         />
 
-        {/* Cinematic bars */}
         <AnimatePresence>
           {overlay.bars && (<>
             <motion.div initial={{ scaleY: 0 }} animate={{ scaleY: 1 }} exit={{ scaleY: 0 }}
@@ -648,19 +762,16 @@ const Camera = ({ onClose }) => {
           </>)}
         </AnimatePresence>
 
-        {/* Vignette */}
         {overlay.vignette && (
           <div className="absolute inset-0 pointer-events-none" style={{ zIndex:4,
             background: "radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.55) 100%)" }} />
         )}
 
-        {/* Grain */}
         {overlay.grain && (
           <div className="absolute inset-0 pointer-events-none" style={{ zIndex:4, opacity:0.12,
             backgroundImage:"url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E\")" }} />
         )}
 
-        {/* Grid */}
         {st.gridEnabled && (
           <div className="absolute inset-0 pointer-events-none" style={{ zIndex:5 }}>
             {[33,66].map((p) => (
@@ -672,7 +783,6 @@ const Camera = ({ onClose }) => {
           </div>
         )}
 
-        {/* Focus ring */}
         <AnimatePresence>
           {focusRing && (
             <motion.div key={focusRing.key}
@@ -683,7 +793,6 @@ const Camera = ({ onClose }) => {
           )}
         </AnimatePresence>
 
-        {/* Timer countdown */}
         <AnimatePresence>
           {st.timerCountdown !== null && (
             <motion.div key={st.timerCountdown}
@@ -696,7 +805,6 @@ const Camera = ({ onClose }) => {
           )}
         </AnimatePresence>
 
-        {/* Burst counter */}
         <AnimatePresence>
           {st.burstCount > 0 && (
             <motion.div initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0 }}
@@ -709,7 +817,6 @@ const Camera = ({ onClose }) => {
           )}
         </AnimatePresence>
 
-        {/* Notification pill */}
         <AnimatePresence>
           {st.notification && (
             <motion.div
@@ -726,7 +833,6 @@ const Camera = ({ onClose }) => {
           )}
         </AnimatePresence>
 
-        {/* Recording badge */}
         <AnimatePresence>
           {st.isRecording && (
             <motion.div initial={{ opacity:0, scale:0.8 }} animate={{ opacity:1, scale:1 }} exit={{ opacity:0 }}
@@ -740,7 +846,6 @@ const Camera = ({ onClose }) => {
           )}
         </AnimatePresence>
 
-        {/* Zoom pill */}
         {st.zoom !== 1 && (
           <motion.div initial={{ opacity:0, y:4 }} animate={{ opacity:1, y:0 }}
             style={{ position:"absolute", bottom:"50%", left:"50%", transform:"translateX(-50%)",
@@ -750,7 +855,6 @@ const Camera = ({ onClose }) => {
           </motion.div>
         )}
 
-        {/* Tap to show controls hint */}
         <AnimatePresence>
           {!st.controlsVisible && (
             <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
@@ -762,7 +866,7 @@ const Camera = ({ onClose }) => {
           )}
         </AnimatePresence>
 
-        {/* ════ TOP HUD (auto-hides) ════ */}
+        {/* TOP HUD */}
         <AnimatePresence>
           {st.controlsVisible && (
             <motion.div
@@ -834,7 +938,7 @@ const Camera = ({ onClose }) => {
           )}
         </AnimatePresence>
 
-        {/* ════ TRANSPARENT THUMBNAIL — always visible, above controls ════ */}
+        {/* Thumbnail */}
         {lastPhoto && (
           <motion.button
             whileTap={{ scale:0.92 }}
@@ -856,7 +960,6 @@ const Camera = ({ onClose }) => {
                 style={{ width:"100%", height:"100%", objectFit:"cover",
                   opacity:0.85, display:"block" }} />
             )}
-            {/* Glass sheen overlay — no background fill, pure sheen */}
             <div style={{ position:"absolute", inset:0, pointerEvents:"none",
               background:"linear-gradient(135deg, rgba(255,255,255,0.22) 0%, transparent 60%)",
               borderRadius:9 }} />
@@ -871,9 +974,7 @@ const Camera = ({ onClose }) => {
         )}
       </div>
 
-      {/* ══════════════════════════════════════════════════════════════
-          BOTTOM CONTROLS — auto-hide
-         ══════════════════════════════════════════════════════════════ */}
+      {/* ══ BOTTOM CONTROLS ════════════════════════════════════════════════ */}
       <AnimatePresence>
         {st.controlsVisible && (
           <motion.div
@@ -882,7 +983,6 @@ const Camera = ({ onClose }) => {
             style={{ background:"rgba(0,0,0,0.88)", backdropFilter:"blur(20px)", flexShrink:0 }}
             onClick={(e) => { e.stopPropagation(); showControls(); }}
           >
-            {/* PRO sliders */}
             <AnimatePresence>
               {st.mode === "pro" && (
                 <motion.div initial={{ height:0, opacity:0 }} animate={{ height:"auto", opacity:1 }}
@@ -932,7 +1032,6 @@ const Camera = ({ onClose }) => {
               )}
             </AnimatePresence>
 
-            {/* Mode carousel */}
             <div style={{ paddingTop:10, paddingBottom:6, borderTop:"1px solid rgba(255,255,255,0.06)" }}>
               <div className="flex items-center justify-center gap-1 overflow-x-auto px-4"
                 style={{ scrollbarWidth:"none" }}>
@@ -954,7 +1053,6 @@ const Camera = ({ onClose }) => {
               </div>
             </div>
 
-            {/* Zoom row */}
             <div className="flex items-center justify-center gap-3 py-2 px-4">
               {[1, 1.5, 2, 3, 5].map((z) => (
                 <motion.button key={z}
@@ -972,10 +1070,7 @@ const Camera = ({ onClose }) => {
               ))}
             </div>
 
-            {/* Shutter row — timer | shutter | flip  (caption inline with mode label above) */}
             <div className="flex items-center justify-between px-8 pb-4 pt-1" style={{ minHeight:80 }}>
-
-              {/* Left: timer + gallery */}
               <div className="flex flex-col items-center gap-2">
                 <motion.button whileTap={{ scale:0.9 }}
                   onClick={() => {
@@ -990,7 +1085,6 @@ const Camera = ({ onClose }) => {
                     justifyContent:"center", cursor:"pointer" }}>
                   {st.timer === 0 ? <Icon d={ICONS.timer} size={17} /> : `${st.timer}s`}
                 </motion.button>
-                {/* Caption button — opens gallery or lets you add caption to last photo */}
                 <motion.button whileTap={{ scale:0.9 }}
                   onClick={() => { set({ showGallery: true }); showControls(); }}
                   style={{ width:44, height:44, borderRadius:"50%",
@@ -1002,7 +1096,6 @@ const Camera = ({ onClose }) => {
                 </motion.button>
               </div>
 
-              {/* Shutter */}
               <motion.button onClick={handleShutter} whileTap={{ scale:0.92 }}
                 style={{ width:72, height:72, borderRadius:"50%", cursor:"pointer",
                   border:`3px solid ${st.mode === "video" && st.isRecording ? "#ef4444" : "#ffffff"}`,
@@ -1015,7 +1108,6 @@ const Camera = ({ onClose }) => {
                   style={{ width:"100%", height:"100%", borderRadius:"50%" }} />
               </motion.button>
 
-              {/* Right: flip + dev */}
               <div className="flex flex-col items-center gap-2">
                 <motion.button whileTap={{ scale:0.9, rotate:180 }} onClick={flipCamera}
                   style={{ width:44, height:44, borderRadius:"50%",
@@ -1038,10 +1130,7 @@ const Camera = ({ onClose }) => {
         )}
       </AnimatePresence>
 
-      {/* ══════════════════════════════════════════════════════════════
-          POST-CAPTURE REVIEW SCREEN
-          Shows after every photo/video — Save or Delete before keeping
-         ══════════════════════════════════════════════════════════════ */}
+      {/* ══ POST-CAPTURE REVIEW ════════════════════════════════════════════ */}
       <AnimatePresence>
         {st.reviewItem && (
           <motion.div
@@ -1049,7 +1138,6 @@ const Camera = ({ onClose }) => {
             style={{ position:"fixed", inset:0, bottom:"var(--taskbar-height,52px)",
               zIndex:85, background:"#000", display:"flex", flexDirection:"column" }}
           >
-            {/* Media */}
             <div style={{ flex:1, position:"relative", overflow:"hidden" }}>
               {st.reviewItem.type === "video" ? (
                 <video
@@ -1065,7 +1153,6 @@ const Camera = ({ onClose }) => {
                 />
               )}
 
-              {/* Mode badge */}
               <div style={{ position:"absolute", top:16, left:"50%", transform:"translateX(-50%)",
                 padding:"4px 14px", borderRadius:12, zIndex:10,
                 background:"rgba(0,0,0,0.65)",
@@ -1074,7 +1161,7 @@ const Camera = ({ onClose }) => {
                 {st.reviewItem.mode?.toUpperCase()} {st.reviewItem.type === "video" ? "· VIDEO" : ""}
               </div>
 
-              {/* Caption display on image */}
+              {/* Live caption preview on the image */}
               {st.reviewItem.caption ? (
                 <div style={{ position:"absolute", bottom:0, left:0, right:0,
                   background:"linear-gradient(transparent, rgba(0,0,0,0.7))",
@@ -1087,8 +1174,8 @@ const Camera = ({ onClose }) => {
               ) : null}
             </div>
 
-            {/* Caption input area */}
             <div style={{ background:"rgba(0,0,0,0.9)", borderTop:"1px solid rgba(255,255,255,0.08)" }}>
+              {/* Caption row */}
               {st.editingCaption ? (
                 <div style={{ padding:"10px 16px", display:"flex", gap:8, alignItems:"center" }}>
                   <input
@@ -1127,7 +1214,7 @@ const Camera = ({ onClose }) => {
                 </div>
               )}
 
-              {/* Save / Delete row */}
+              {/* Save / Delete */}
               <div style={{ display:"flex", gap:12, padding:"8px 24px 16px" }}>
                 <motion.button whileTap={{ scale:0.95 }}
                   onClick={discardReviewItem}
@@ -1151,9 +1238,7 @@ const Camera = ({ onClose }) => {
         )}
       </AnimatePresence>
 
-      {/* ══════════════════════════════════════════════════════════════
-          FULL-SCREEN PHOTO / VIDEO PREVIEW
-         ══════════════════════════════════════════════════════════════ */}
+      {/* ══ FULL-SCREEN PREVIEW ════════════════════════════════════════════ */}
       <AnimatePresence>
         {st.previewImage && (
           <motion.div
@@ -1162,7 +1247,6 @@ const Camera = ({ onClose }) => {
               zIndex:80, background:"#000", display:"flex", flexDirection:"column" }}
             onClick={() => set({ previewImage:null, previewIndex:null })}
           >
-            {/* Top bar */}
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
               padding:"12px 16px",
               background:"linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, transparent 100%)",
@@ -1179,7 +1263,6 @@ const Camera = ({ onClose }) => {
                 {st.previewIndex + 1} / {st.capturedImages.length}
               </div>
               <div className="flex gap-2">
-                {/* Caption button */}
                 <button
                   onClick={() => set({ editingCaption: true, captionDraft: st.previewImage.caption || "" })}
                   style={{ width:36, height:36, borderRadius:"50%", background:"rgba(255,255,255,0.15)",
@@ -1195,7 +1278,8 @@ const Camera = ({ onClose }) => {
                   <Icon d={ICONS.download} size={16} />
                 </button>
                 <button
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     const img = st.capturedImages[st.previewIndex];
                     dispatch({ type:"DEL_IMAGE", index: st.previewIndex });
                     if (img?.savedId) cameraAPI.deleteItem(img.savedId).catch(console.error);
@@ -1208,7 +1292,6 @@ const Camera = ({ onClose }) => {
               </div>
             </div>
 
-            {/* Media */}
             {st.previewImage.type === "video" ? (
               <video
                 src={st.previewImage.src}
@@ -1227,7 +1310,6 @@ const Camera = ({ onClose }) => {
               />
             )}
 
-            {/* Caption editing overlay in preview */}
             <AnimatePresence>
               {st.editingCaption && (
                 <motion.div
@@ -1243,12 +1325,7 @@ const Camera = ({ onClose }) => {
                       value={st.captionDraft}
                       onChange={(e) => set({ captionDraft: e.target.value })}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          dispatch({ type:"UPDATE_CAPTION", index: st.previewIndex, caption: st.captionDraft });
-                          set({ previewImage: { ...st.previewImage, caption: st.captionDraft } });
-                          const img = st.capturedImages[st.previewIndex];
-                          if (img?.savedId) cameraAPI.saveEdit({ id: img.savedId, caption: st.captionDraft }).catch(console.error);
-                        }
+                        if (e.key === "Enter") { savePreviewCaption(); }
                         if (e.key === "Escape") set({ editingCaption: false, captionDraft: "" });
                       }}
                       placeholder="Add a caption…"
@@ -1256,12 +1333,7 @@ const Camera = ({ onClose }) => {
                         borderRadius:10, padding:"10px 12px", color:"#fff", fontSize:14, outline:"none" }}
                     />
                     <button
-                      onClick={() => {
-                        dispatch({ type:"UPDATE_CAPTION", index: st.previewIndex, caption: st.captionDraft });
-                        set({ previewImage: { ...st.previewImage, caption: st.captionDraft } });
-                        const img = st.capturedImages[st.previewIndex];
-                        if (img?.savedId) cameraAPI.saveEdit({ id: img.savedId, caption: st.captionDraft }).catch(console.error);
-                      }}
+                      onClick={savePreviewCaption}
                       style={{ width:40, height:40, borderRadius:"50%", background:"#22c55e",
                         border:"none", cursor:"pointer", display:"flex", alignItems:"center",
                         justifyContent:"center", color:"#fff", flexShrink:0 }}>
@@ -1279,19 +1351,6 @@ const Camera = ({ onClose }) => {
               )}
             </AnimatePresence>
 
-            {/* Caption display */}
-            {st.previewImage.caption && !st.editingCaption && (
-              <div style={{ position:"absolute", bottom:0, left:0, right:0,
-                background:"linear-gradient(transparent, rgba(0,0,0,0.75))",
-                padding:"32px 20px 16px", zIndex:10, pointerEvents:"none" }}>
-                <p style={{ color:"#fff", fontSize:14, textAlign:"center",
-                  fontStyle:"italic", textShadow:"0 1px 6px rgba(0,0,0,0.8)" }}>
-                  "{st.previewImage.caption}"
-                </p>
-              </div>
-            )}
-
-            {/* Prev / Next arrows */}
             {st.capturedImages.length > 1 && (
               <>
                 {st.previewIndex < st.capturedImages.length - 1 && (
@@ -1315,8 +1374,7 @@ const Camera = ({ onClose }) => {
               </>
             )}
 
-            {/* Mode badge */}
-            <div style={{ position:"absolute", bottom: st.previewImage.caption ? 60 : 24,
+            <div style={{ position:"absolute", bottom:24,
               left:"50%", transform:"translateX(-50%)",
               padding:"4px 14px", borderRadius:12, zIndex:10,
               background:"rgba(0,0,0,0.6)",
@@ -1328,9 +1386,7 @@ const Camera = ({ onClose }) => {
         )}
       </AnimatePresence>
 
-      {/* ══════════════════════════════════════════════════════════════
-          GALLERY — with album tabs (All / Videos / per-mode albums)
-         ══════════════════════════════════════════════════════════════ */}
+      {/* ══ GALLERY ════════════════════════════════════════════════════════ */}
       <AnimatePresence>
         {st.showGallery && (
           <motion.div
@@ -1349,7 +1405,6 @@ const Camera = ({ onClose }) => {
                 maxHeight:"90vh", overflowY:"auto",
                 border:"1px solid rgba(255,255,255,0.08)" }}>
 
-              {/* Header */}
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
                 padding:"16px 20px 8px" }}>
                 <span style={{ color:"#fff", fontWeight:700, fontSize:16 }}>
@@ -1361,7 +1416,6 @@ const Camera = ({ onClose }) => {
                 </button>
               </div>
 
-              {/* Album tabs */}
               <div style={{ display:"flex", gap:6, overflowX:"auto", padding:"0 16px 12px",
                 scrollbarWidth:"none" }}>
                 {ALBUMS.map((album) => {
@@ -1393,7 +1447,7 @@ const Camera = ({ onClose }) => {
                   {filteredImages.map((img, i) => {
                     const realIdx = st.capturedImages.indexOf(img);
                     return (
-                      <motion.div key={img.ts}
+                      <motion.div key={img.ts ?? img.savedId}
                         initial={{ opacity:0, scale:0.85 }} animate={{ opacity:1, scale:1 }}
                         transition={{ delay: i * 0.02 }}
                         whileTap={{ scale:0.96 }}
@@ -1409,7 +1463,6 @@ const Camera = ({ onClose }) => {
                         ) : (
                           <img src={img.src} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} />
                         )}
-                        {/* Caption indicator */}
                         {img.caption && (
                           <div style={{ position:"absolute", top:4, left:4, width:16, height:16,
                             borderRadius:"50%", background:"rgba(0,0,0,0.7)",
@@ -1417,14 +1470,12 @@ const Camera = ({ onClose }) => {
                             <Icon d={ICONS.caption} size={9} />
                           </div>
                         )}
-                        {/* Mode badge */}
                         <div style={{ position:"absolute", bottom:3, left:3,
                           padding:"1px 5px", borderRadius:5, background:"rgba(0,0,0,0.65)",
                           color: MODES.find((m) => m.id === img.mode)?.color ?? "#fff",
                           fontSize:7, fontWeight:700, letterSpacing:"0.06em" }}>
                           {img.mode?.toUpperCase()}
                         </div>
-                        {/* Download */}
                         <button
                           onClick={(e) => { e.stopPropagation(); downloadItem(img); }}
                           style={{ position:"absolute", top:3, right:3,
@@ -1443,9 +1494,7 @@ const Camera = ({ onClose }) => {
         )}
       </AnimatePresence>
 
-      {/* ══════════════════════════════════════════════════════════════
-          DEV PANEL
-         ══════════════════════════════════════════════════════════════ */}
+      {/* ══ DEV PANEL ══════════════════════════════════════════════════════ */}
       <AnimatePresence>
         {st.showDevPanel && (
           <motion.div
