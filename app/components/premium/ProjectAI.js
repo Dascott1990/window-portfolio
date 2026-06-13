@@ -603,12 +603,13 @@ const ProjectAI = ({ onClose }) => {
     try {
       abortRef.current = new AbortController();
 
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+      const response = await fetch(`${BASE_URL}/api/v1/ai/chat`, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         signal:  abortRef.current.signal,
         body: JSON.stringify({
-          model:      "claude-sonnet-4-20250514",
+          model:      "claude-sonnet-4-6",
           max_tokens: 1000,
           system:     SYSTEM_PROMPT,
           stream:     true,

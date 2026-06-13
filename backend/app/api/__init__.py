@@ -6,6 +6,7 @@ from .projects     import projects_bp
 from .transactions import transactions_bp
 from .health_records import health_bp
 from .files        import files_bp
+from .ai           import ai_bp
 
 
 def register_blueprints(app):
@@ -18,3 +19,4 @@ def register_blueprints(app):
     app.register_blueprint(transactions_bp, url_prefix=f"{prefix}/transactions")
     app.register_blueprint(health_bp,       url_prefix=f"{prefix}/health")
     app.register_blueprint(files_bp,        url_prefix=f"{prefix}/files")
+    app.register_blueprint(ai_bp,           url_prefix=f"{prefix}/ai")
