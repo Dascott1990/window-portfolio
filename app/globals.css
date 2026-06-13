@@ -38,11 +38,8 @@
   --duration-normal: 200ms;
   --duration-slow: 350ms;
 
-  /* Taskbar — single source of truth.
-     All app overlays must use this to avoid rendering beneath the bar. */
+  /* Taskbar */
   --taskbar-height: 52px;
-  /* Mobile status bar height (only added on small viewports) */
-  --statusbar-height: 36px;
 }
 
 /* ─── Base Resets ───────────────────────────────────────────────── */
@@ -141,25 +138,6 @@ body {
   border-top: 1px solid var(--border-subtle);
 }
 
-/* ─── App overlay containment ─────────────────────────────────────
-   All fixed overlays (modals, cameras, maps, games…) must stay
-   within the desktop area above the taskbar.
-   Use .app-overlay instead of `fixed inset-0` to get this automatically.
-*/
-.app-overlay {
-  position: fixed;
-  inset: 0 0 var(--taskbar-height) 0;
-  z-index: 50;
-  overflow: hidden;
-}
-
-/* On mobile the status bar at the top also eats space */
-@media (max-width: 767px) {
-  .app-overlay {
-    inset: var(--statusbar-height) 0 var(--taskbar-height) 0;
-  }
-}
-
 /* ─── Icon grid ─────────────────────────────────────────────────── */
 .desktop-icon {
   display: flex;
@@ -214,58 +192,4 @@ body {
   .text-balance { text-wrap: balance; }
   .bg-surface-glass { background: var(--surface-glass); }
   .border-subtle { border-color: var(--border-subtle); }
-
-  /* GPU-composited animation hint — apply to elements that will animate */
-  .will-animate {
-    will-change: transform, opacity;
-  }
-  /* Remove the hint after animation settles (add/remove via JS or use sparingly) */
-  .animation-settled {
-    will-change: auto;
-  }
-}
-
-
-/* ─── Mobile viewport fix ────────────────────────────────────────────────── */
-/* Prevents horizontal overflow on all screens */
-html, body {
-  overflow-x: hidden;
-  max-width: 100vw;
-}
-
-/* ─── Prevent fixed overlays from causing scroll ─────────────────────────── */
-.fixed { max-width: 100vw; }
-
-/* ─── Touch targets — minimum 44px on mobile ─────────────────────────────── */
-@media (max-width: 639px) {
-  button, [role="button"], a {
-    min-height: 36px;
-  }
-}
-
-/* ─── Scrollbar hide utility ─────────────────────────────────────────────── */
-.scrollbar-none {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-.scrollbar-none::-webkit-scrollbar { display: none; }
-
-/* ─── Line clamp utility ─────────────────────────────────────────────────── */
-.line-clamp-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-/* ─── Landscape mobile: shrink taskbar to give more screen space ─────────── */
-@media (max-height: 500px) and (orientation: landscape) {
-  :root { --taskbar-height: 40px; --statusbar-height: 24px; }
-}
-
-/* ─── Small phones (iPhone SE, Galaxy A series) ──────────────────────────── */
-@media (max-width: 375px) {
-  .text-4xl { font-size: 1.75rem; }
-  .text-3xl { font-size: 1.5rem; }
-  .text-2xl { font-size: 1.25rem; }
 }

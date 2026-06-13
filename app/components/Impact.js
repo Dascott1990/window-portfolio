@@ -42,8 +42,15 @@ const Impact = ({ impact, setImpact }) => {
       {impact && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4"
-          style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", bottom: "var(--taskbar-height,52px)" }}
+          className="fixed inset-x-0 z-50 flex items-center justify-center p-3 sm:p-4"
+          style={{
+            top: "var(--mobile-status-bar, 0px)",
+            bottom: "var(--taskbar-height, 52px)",
+            background: "rgba(0,0,0,0.7)",
+            backdropFilter: "blur(4px)",
+            paddingTop: "max(12px, env(safe-area-inset-top))",
+            paddingBottom: "max(12px, env(safe-area-inset-bottom))",
+          }}
         >
           <motion.div
             initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }}
@@ -51,15 +58,18 @@ const Impact = ({ impact, setImpact }) => {
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
             className="w-full rounded-2xl overflow-hidden flex flex-col"
             style={{
-              maxWidth: 700, maxHeight: "88vh",
+              maxWidth: 700,
+              maxHeight: "100%",
               background: "rgba(15,17,26,0.96)",
               border: "1px solid rgba(255,255,255,0.08)",
               boxShadow: "0 24px 64px rgba(0,0,0,0.8)",
             }}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-white/8 flex-shrink-0"
-              style={{ background: "linear-gradient(135deg,#2563eb,#1d4ed8)" }}>
+            <div
+              className="flex items-center justify-between px-4 py-3 border-b border-white/8 flex-shrink-0"
+              style={{ background: "linear-gradient(135deg,#2563eb,#1d4ed8)" }}
+            >
               <span className="text-white font-semibold text-sm">Impact</span>
               <button onClick={close} className="p-1 rounded-lg hover:bg-white/20 text-white transition-colors">
                 <MdOutlineClose size={18} />
@@ -74,7 +84,8 @@ const Impact = ({ impact, setImpact }) => {
                   initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.07 }}
                   className="p-4 rounded-xl border border-white/8"
-                  style={{ background: "rgba(255,255,255,0.04)" }}>
+                  style={{ background: "rgba(255,255,255,0.04)" }}
+                >
                   <h3 className="text-sm sm:text-base font-semibold text-white mb-0.5">{item.title}</h3>
                   <p className="text-xs text-blue-400 font-medium mb-2">{item.role}</p>
                   <p className="text-xs sm:text-sm text-white/65 leading-relaxed">{item.desc}</p>

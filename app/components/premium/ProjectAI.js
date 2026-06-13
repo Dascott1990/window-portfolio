@@ -706,12 +706,17 @@ const ProjectAI = ({ onClose }) => {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       style={{
-        position: "fixed", inset: 0, zIndex: 50,
+        position: "fixed",
+        left: 0, right: 0,
+        top: 0,
         bottom: "var(--taskbar-height, 52px)",
+        zIndex: 50,
         background: "rgba(0,0,0,0.75)",
         backdropFilter: "blur(24px)",
         display: "flex", alignItems: "center", justifyContent: "center",
-        padding: "12px",
+        paddingTop: "max(12px, env(safe-area-inset-top))",
+        paddingBottom: "max(12px, env(safe-area-inset-bottom))",
+        paddingLeft: 12, paddingRight: 12,
         fontFamily: T.sans,
       }}
       onClick={(e) => { if (e.target === e.currentTarget && !st.isStreaming) onClose?.(); }}
@@ -723,7 +728,7 @@ const ProjectAI = ({ onClose }) => {
         transition={{ type: "spring", damping: 24, stiffness: 280 }}
         style={{
           width: "100%", maxWidth: 780,
-          height: "min(88vh, 780px)",
+          height: "100%", maxHeight: 780,
           borderRadius: 20,
           overflow: "hidden",
           display: "flex",

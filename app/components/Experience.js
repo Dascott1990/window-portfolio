@@ -54,11 +54,11 @@ const EXP_DATA = [
 ];
 
 const BORDER_COLOR = {
-  security: "border-l-red-500",
-  mobile:   "border-l-blue-500",
-  education:"border-l-purple-500",
-  community:"border-l-green-500",
-  development:"border-l-green-500",
+  security:    "border-l-red-500",
+  mobile:      "border-l-blue-500",
+  education:   "border-l-purple-500",
+  community:   "border-l-green-500",
+  development: "border-l-green-500",
 };
 
 const Experience = ({ experience, setexperience }) => {
@@ -72,24 +72,42 @@ const Experience = ({ experience, setexperience }) => {
       {experience && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4"
-          style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", bottom: "var(--taskbar-height,52px)" }}
+          className="fixed inset-x-0 z-50 flex items-center justify-center p-3 sm:p-4"
+          style={{
+            top: "var(--mobile-status-bar, 0px)",
+            bottom: "var(--taskbar-height, 52px)",
+            background: "rgba(0,0,0,0.7)",
+            backdropFilter: "blur(4px)",
+            // iOS safe area
+            paddingTop: "max(12px, env(safe-area-inset-top))",
+            paddingBottom: "max(12px, env(safe-area-inset-bottom))",
+          }}
         >
           <motion.div
             initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }}
             exit={{ scale: 0.95, y: 20 }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
             className="w-full rounded-xl overflow-hidden flex flex-col"
-            style={{ maxWidth: 700, maxHeight: "88vh", background: "#f3f4f6", border: "1px solid #d1d5db", boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}
+            style={{
+              maxWidth: 700,
+              maxHeight: "100%",
+              background: "#f3f4f6",
+              border: "1px solid #d1d5db",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+            }}
           >
-            <div className="flex items-center justify-between px-4 py-2 flex-shrink-0"
-              style={{ background: "linear-gradient(135deg,#2563eb,#1d4ed8)" }}>
+            {/* Title bar */}
+            <div
+              className="flex items-center justify-between px-4 py-2 flex-shrink-0"
+              style={{ background: "linear-gradient(135deg,#2563eb,#1d4ed8)" }}
+            >
               <span className="text-white font-semibold text-sm">Experience Terminal</span>
               <button onClick={close} className="p-1 hover:bg-blue-700 text-white rounded transition-colors">
                 <MdOutlineClose size={18} />
               </button>
             </div>
 
+            {/* Scrollable content */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{ scrollbarWidth: "none" }}>
               <h1 className="text-lg sm:text-2xl font-semibold text-gray-800 border-b pb-2 mb-2 border-gray-300">
                 Professional Journey

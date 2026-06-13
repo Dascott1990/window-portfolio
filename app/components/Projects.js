@@ -23,16 +23,26 @@ const Projects = ({ showModal, setShowModal }) => {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
-          className="fixed inset-0 z-50 flex items-center justify-center overflow-auto bg-black bg-opacity-70"
-          style={{ backdropFilter: "blur(2px)" }}
+          className="fixed inset-x-0 z-50 flex items-center justify-center overflow-auto bg-black bg-opacity-70"
+          style={{
+            top: 0,
+            bottom: "var(--taskbar-height, 52px)",
+            backdropFilter: "blur(2px)",
+            paddingTop: "max(12px, env(safe-area-inset-top))",
+            paddingBottom: "max(12px, env(safe-area-inset-bottom))",
+            paddingLeft: 12,
+            paddingRight: 12,
+          }}
         >
           <motion.div
             initial={{ scale: 0.95, y: 20 }}
             animate={{ scale: 1, y: 0 }}
             exit={{ scale: 0.95, y: 20 }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="bg-gray-100 w-[900px] smbelow:h-[600px] smbelow:overflow-y-auto smbelow:mt-5 h-auto rounded-sm shadow-xl border border-gray-300"
+            className="bg-gray-100 w-full rounded-sm shadow-xl border border-gray-300 flex flex-col overflow-hidden"
             style={{
+              maxWidth: 900,
+              maxHeight: "100%",
               boxShadow: "0 10px 30px rgba(0, 0, 0, 0.3)",
             }}
           >
@@ -43,7 +53,7 @@ const Projects = ({ showModal, setShowModal }) => {
                 <span className="text-white font-medium text-sm">Personal Projects</span>
               </div>
               <div className="flex">
-                <button 
+                <button
                   className="text-white p-1 hover:bg-blue-700 transition-colors duration-150"
                   onClick={() => {
                     const audio = new Audio("click.wav");
@@ -57,7 +67,7 @@ const Projects = ({ showModal, setShowModal }) => {
             </div>
 
             {/* Window Content */}
-            <div className="flex flex-col items-start justify-start p-4 bg-gray-100">
+            <div className="flex flex-col items-start justify-start p-4 bg-gray-100 flex-1 overflow-y-auto" style={{ scrollbarWidth: "none" }}>
               {sureplug && (
                 <AnimatedItem animationConfig={{ delay: 0.1 }}>
                   <button

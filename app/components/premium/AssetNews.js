@@ -461,15 +461,21 @@ const AssetNews = ({ onClose }) => {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ bottom: "var(--taskbar-height, 52px)", background: "rgba(0,0,0,0.7)", backdropFilter: "blur(18px)" }}
+      className="fixed inset-x-0 z-50 flex items-center justify-center"
+      style={{
+        top: 0,
+        bottom: "var(--taskbar-height, 52px)",
+        background: "rgba(0,0,0,0.7)",
+        backdropFilter: "blur(18px)",
+        padding: "max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom))",
+      }}
     >
       <motion.div
         initial={{ scale: 0.95, y: 16 }} animate={{ scale: 1, y: 0 }}
         exit={{ scale: 0.95, y: 16 }}
         transition={{ type: "spring", damping: 24, stiffness: 300 }}
         className="w-full max-w-lg rounded-2xl overflow-hidden flex flex-col"
-        style={{ maxHeight: "92vh", background: "linear-gradient(160deg, #0e1520 0%, #080e18 100%)", border: "1px solid rgba(255,255,255,0.07)", boxShadow: "0 40px 80px rgba(0,0,0,0.7)" }}
+        style={{ maxHeight: "100%", background: "linear-gradient(160deg, #0e1520 0%, #080e18 100%)", border: "1px solid rgba(255,255,255,0.07)", boxShadow: "0 40px 80px rgba(0,0,0,0.7)" }}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/6 flex-shrink-0">
