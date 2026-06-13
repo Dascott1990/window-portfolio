@@ -419,7 +419,7 @@ const MusicApp = ({ musicOpen, setMusicOpen }) => {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6"
+        className="safe-overlay-backdrop"
         style={{ bottom: "var(--taskbar-height, 52px)" }}
         style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(28px)" }}
       >
