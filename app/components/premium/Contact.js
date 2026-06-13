@@ -116,7 +116,7 @@ const Contact = ({ onClose }) => {
 
   return (
     <motion.div
-      className="safe-overlay bg-white dark:bg-gray-900 overflow-hidden"
+      className="fixed inset-0 z-50 bg-white dark:bg-gray-900 overflow-hidden"
       style={{ bottom: "var(--taskbar-height, 52px)" }}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}

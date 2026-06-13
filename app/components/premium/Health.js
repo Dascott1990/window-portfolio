@@ -169,8 +169,7 @@ const DoctorAI = ({ onClose }) => {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="safe-overlay bg-black flex flex-col"
-        style={{ bottom: "var(--taskbar-height, 52px)" }}
+        className="fixed inset-0 z-50 bg-black flex flex-col"
       >
         {/* Flash effect layer */}
         <motion.div
