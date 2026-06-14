@@ -44,6 +44,11 @@ const Menu = ({
   isStartMenuOpen, setShowModal, screen,
   setexperience, setImpact, setEducation,
   setInfo, info, setShowFintech,
+  // All app openers — wired from home page
+  setGame, setMusicOpen, setMapOpen,
+  setShowCalendar, setShowHealth, setShowAI,
+  setShowCamera, setShowAssetNews, setShowContact,
+  setShowResume,
 }) => {
   const [search,  setSearch]  = useState("");
   const [focused, setFocused] = useState(null);
@@ -57,14 +62,29 @@ const Menu = ({
   const handleAppClick = useCallback((id) => {
     try { new Audio("/click.wav").play(); } catch {}
     const map = {
-      projects:   () => setShowModal(true),
-      experience: () => setexperience(true),
-      impact:     () => setImpact(true),
-      education:  () => setEducation(true),
+      projects:   () => setShowModal?.(true),
+      experience: () => setexperience?.(true),
+      impact:     () => setImpact?.(true),
+      education:  () => setEducation?.(true),
       fintech:    () => setShowFintech?.(true),
+      resume:     () => setShowResume?.(true),
+      game:       () => setGame?.(true),
+      music:      () => setMusicOpen?.(true),
+      map:        () => setMapOpen?.(true),
+      calendar:   () => setShowCalendar?.(true),
+      health:     () => setShowHealth?.(true),
+      ai:         () => setShowAI?.(true),
+      camera:     () => setShowCamera?.(true),
+      assets:     () => setShowAssetNews?.(true),
+      contact:    () => setShowContact?.(true),
+      github:     () => window.open("https://github.com/dascott1990", "_blank"),
     };
     map[id]?.();
-  }, [setShowModal, setexperience, setImpact, setEducation, setShowFintech]);
+  }, [
+    setShowModal, setexperience, setImpact, setEducation, setShowFintech,
+    setShowResume, setGame, setMusicOpen, setMapOpen, setShowCalendar,
+    setShowHealth, setShowAI, setShowCamera, setShowAssetNews, setShowContact,
+  ]);
 
   const filtered    = search.trim()
     ? PINNED_APPS.filter(a => a.label.toLowerCase().includes(search.toLowerCase()))

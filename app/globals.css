@@ -40,6 +40,15 @@
 
   /* Taskbar */
   --taskbar-height: 52px;
+
+  /* ── OS Input System ── */
+  --input-bg:          rgba(255, 255, 255, 0.06);
+  --input-bg-focus:    rgba(255, 255, 255, 0.10);
+  --input-border:      rgba(255, 255, 255, 0.10);
+  --input-border-focus:#3b82f6;
+  --input-text:        #f1f5f9;
+  --input-placeholder: rgba(148, 163, 184, 0.55);
+  --input-radius:      10px;
 }
 
 /* ─── Base Resets ───────────────────────────────────────────────── */
@@ -57,6 +66,87 @@ body {
   font-family: var(--font-sans);
   font-weight: 400;
   line-height: 1.5;
+}
+
+/* ─── OS-wide Input / Textarea baseline ───────────────────────────
+   Every <input> and <textarea> in the entire OS inherits these
+   styles so there is NEVER a white box with invisible text.
+   Component-level classes layer on top (border-radius, padding, etc)
+   but background, color, and placeholder are always correct.
+────────────────────────────────────────────────────────────────── */
+input,
+textarea,
+select {
+  background-color: var(--input-bg);
+  color:            var(--input-text);
+  border:           1px solid var(--input-border);
+  border-radius:    var(--input-radius);
+  font-family:      var(--font-sans);
+  font-size:        0.875rem;
+  transition:       background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  -webkit-font-smoothing: antialiased;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline:          none;
+  background-color: var(--input-bg-focus);
+  border-color:     var(--input-border-focus);
+  box-shadow:       0 0 0 2px rgba(59, 130, 246, 0.18);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--input-placeholder);
+}
+
+/* Kill browser autofill white flash */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill {
+  -webkit-text-fill-color: var(--input-text) !important;
+  -webkit-box-shadow: 0 0 0 1000px rgba(30, 35, 55, 0.95) inset !important;
+  transition: background-color 9999s ease-in-out 0s;
+  caret-color: var(--input-text);
+}
+
+/* Range inputs (music player scrubber, etc) — keep browser default */
+input[type="range"] {
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
+}
+input[type="range"]:focus {
+  box-shadow: none;
+  border-color: transparent;
+}
+
+/* Number spinners */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  opacity: 0.4;
+}
+
+/* ─── Light-surface override (Contact app uses bg-white / bg-gray-50) ─ */
+/* When inside a light panel, flip to dark-text on light background    */
+.light-panel input,
+.light-panel textarea,
+.light-panel select {
+  background-color: #ffffff;
+  color:            #1e293b;
+  border-color:     #e2e8f0;
+}
+.light-panel input:focus,
+.light-panel textarea:focus,
+.light-panel select:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.14);
+}
+.light-panel input::placeholder,
+.light-panel textarea::placeholder {
+  color: #94a3b8;
 }
 
 /* ─── Custom Scrollbar ──────────────────────────────────────────── */

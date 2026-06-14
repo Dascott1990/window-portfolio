@@ -221,9 +221,12 @@ const MapApp = ({ mapOpen, setMapOpen }) => {
                       onChange={handleSearchChange}
                       onFocus={() => searchQuery && setShowSearchResults(true)}
                       placeholder="Search for places or addresses"
-                      className={`flex-1 py-2 px-1 bg-transparent focus:outline-none ${
-                        darkMode ? 'text-white placeholder-gray-400' : 'text-gray-800 placeholder-gray-500'
-                      }`}
+                      className="flex-1 py-2 px-1 focus:outline-none border-none shadow-none"
+                      style={{
+                        background: 'transparent',
+                        color: darkMode ? '#f1f5f9' : '#1e293b',
+                        caretColor: darkMode ? '#f1f5f9' : '#1e293b',
+                      }}
                     />
                     {searchQuery && (
                       <button
