@@ -6,7 +6,6 @@ import { FaTrophy, FaStar, FaLightbulb, FaFire, FaBolt, FaCrown, FaRocket } from
 import { HiSparkles } from "react-icons/hi2";
 
 // ─── Enhanced Card definitions ──────────────────────────────────────────────
-// Each unique symbol appears exactly once; we'll duplicate the array to form pairs.
 const CARD_SYMBOLS = [
   { value: "A", emoji: "🦊", label: "Fox", coinValue: 10, rarity: "common" },
   { value: "B", emoji: "🐬", label: "Dolphin", coinValue: 15, rarity: "common" },
@@ -102,7 +101,7 @@ const saveHighScore = (difficulty, score) => {
   return false;
 };
 
-// ─── Enhanced Sub-components ────────────────────────────────────────────────
+// ─── Sub-components ────────────────────────────────────────────────────────────────
 const ScorePopup = ({ value, id, type = "coin" }) => (
   <motion.div
     key={id}
@@ -196,7 +195,6 @@ const Card = ({ card, isFlipped, isMatched, isWrong, onClick, index }) => {
             boxShadow: "0 4px 20px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08)"
           }}
         >
-          {/* Animated pattern on back */}
           <div className="absolute inset-0 opacity-10">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,_rgba(99,179,237,0.3)_0%,_transparent_70%)]" />
           </div>
@@ -247,7 +245,7 @@ const Card = ({ card, isFlipped, isMatched, isWrong, onClick, index }) => {
   );
 };
 
-// ─── Enhanced Screens ──────────────────────────────────────────────────────
+// ─── Screens ──────────────────────────────────────────────────────────────────
 const StartScreen = ({ onPlay, onInstructions, highScores }) => {
   const [hoveredDiff, setHoveredDiff] = useState(null);
 
@@ -275,7 +273,6 @@ const StartScreen = ({ onPlay, onInstructions, highScores }) => {
         </p>
       </div>
 
-      {/* High Scores with animations */}
       <div className="w-full max-w-xs bg-white/5 rounded-2xl p-4 border border-white/8">
         <div className="flex items-center gap-2 mb-3">
           <FaTrophy className="text-yellow-400 text-sm" />
@@ -343,8 +340,140 @@ const StartScreen = ({ onPlay, onInstructions, highScores }) => {
   );
 };
 
+const InstructionsScreen = ({ onBack }) => (
+  <motion.div
+    initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -30 }}
+    className="flex flex-col gap-5 px-6 py-8"
+  >
+    <h2 className="text-xl font-black text-white text-center">How to Play</h2>
+    <div className="space-y-3">
+      {[
+        ["🎯", "Objective", "Find all matching pairs of cards before time or moves run out. Match rare cards for bonus points!"],
+        ["👆", "Controls", "Tap or click a card to flip it. Flip two cards — if they match, they stay revealed."],
+        ["🔥", "Combos", "Match cards in a row to build a combo! Each consecutive match adds bonus points to your score."],
+        ["⭐", "Scoring", "Each match earns coins. Combos add bonus points. Complete the game fast with few moves for a massive score bonus!"],
+        ["⏱️", "Difficulty", "Easy: unlimited. Medium: 120s timer. Hard: 60s timer + 25 move limit. Expert: 45s timer + 20 move limit."],
+        ["🏆", "Achievements", "Unlock special achievements as you play! Can you collect them all?"],
+      ].map(([icon, title, desc]) => (
+        <div key={title} className="flex gap-3 items-start bg-white/5 rounded-xl p-3 border border-white/8">
+          <span className="text-2xl flex-shrink-0">{icon}</span>
+          <div>
+            <p className="text-white font-semibold text-sm">{title}</p>
+            <p className="text-white/50 text-xs mt-0.5 leading-relaxed">{desc}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+    <motion.button
+      whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+      onClick={onBack}
+      className="w-full py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-bold text-sm"
+    >
+      Got it!
+    </motion.button>
+  </motion.div>
+);
+
+const PauseOverlay = ({ onResume, onRestart, onExit }) => (
+  <motion.div
+    initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+    className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-5 rounded-2xl"
+    style={{ background: "rgba(0,0,0,0.85)", backdropFilter: "blur(12px)" }}
+  >
+    <MdPause className="text-white/20" size={64} />
+    <h2 className="text-2xl font-black text-white">Paused</h2>
+    <div className="flex flex-col gap-3 w-48">
+      <button onClick={onResume} className="w-full py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-bold flex items-center justify-center gap-2">
+        <MdPlayArrow /> Resume
+      </button>
+      <button onClick={onRestart} className="w-full py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center gap-2">
+        <MdReplay /> Restart
+      </button>
+      <button onClick={onExit} className="w-full py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-white/60 font-bold">
+        Exit Game
+      </button>
+    </div>
+  </motion.div>
+);
+
+const ResultScreen = ({ won, score, isNewRecord, moves, timeLeft, difficulty, combo, matchStreak, onRestart, onExit }) => (
+  <motion.div
+    initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+    className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-5 rounded-2xl px-6 text-center"
+    style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(16px)" }}
+  >
+    <motion.div
+      initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }}
+      transition={{ type: "spring", damping: 12, delay: 0.1 }}
+      className="text-7xl"
+    >
+      {won ? "🏆" : "💀"}
+    </motion.div>
+    <div>
+      <h2 className={`text-3xl font-black ${won ? "text-yellow-400" : "text-red-400"}`}>
+        {won ? "You Won!" : "Game Over"}
+      </h2>
+      <p className="text-white/40 text-sm mt-1">
+        {won
+          ? `Completed in ${moves} moves`
+          : `Better luck next time on ${DIFFICULTIES[difficulty]?.label}`}
+      </p>
+    </div>
+
+    {won && (
+      <>
+        <div className="bg-white/8 rounded-2xl px-8 py-4 border border-white/10 flex flex-col items-center">
+          <span className="text-white/40 text-xs uppercase tracking-widest mb-1">Final Score</span>
+          <span className="text-yellow-400 font-black text-5xl">{score}</span>
+          {isNewRecord && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}
+              className="flex items-center gap-1 mt-2 text-emerald-400 text-xs font-bold"
+            >
+              <HiSparkles /> New Record!
+            </motion.div>
+          )}
+        </div>
+
+        <div className="flex gap-4 text-sm">
+          <div className="text-center">
+            <div className="text-white/40 text-xs">Best Combo</div>
+            <div className="text-orange-400 font-bold text-lg">{combo}x</div>
+          </div>
+          <div className="text-center">
+            <div className="text-white/40 text-xs">Longest Streak</div>
+            <div className="text-purple-400 font-bold text-lg">{matchStreak}</div>
+          </div>
+          <div className="text-center">
+            <div className="text-white/40 text-xs">Difficulty</div>
+            <div className="text-blue-400 font-bold text-lg">{DIFFICULTIES[difficulty]?.label}</div>
+          </div>
+        </div>
+      </>
+    )}
+
+    <div className="flex gap-3">
+      <motion.button
+        whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+        onClick={onRestart}
+        className="px-6 py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-bold flex items-center gap-2"
+      >
+        <MdReplay /> Play Again
+      </motion.button>
+      <motion.button
+        whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+        onClick={onExit}
+        className="px-6 py-3 rounded-2xl bg-white/8 hover:bg-white/15 text-white font-bold"
+      >
+        Exit
+      </motion.button>
+    </div>
+  </motion.div>
+);
+
 // ─── MAIN GAME COMPONENT ──────────────────────────────────────────────────────
 const Game = ({ game, setGame }) => {
+  // ALL HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL RETURNS
   const [screen, setScreen] = useState("start");
   const [difficulty, setDifficulty] = useState("easy");
   const [cards, setCards] = useState([]);
@@ -364,6 +493,7 @@ const Game = ({ game, setGame }) => {
   const [totalMatches, setTotalMatches] = useState(0);
   const [bestCombo, setBestCombo] = useState(0);
   const [matchStreak, setMatchStreak] = useState(0);
+  const [currentAchievement, setCurrentAchievement] = useState(null);
 
   const timerRef = useRef(null);
 
@@ -392,6 +522,16 @@ const Game = ({ game, setGame }) => {
     return () => clearInterval(timerRef.current);
   }, [screen, difficulty, sfx]);
 
+  // Achievement popup effect
+  useEffect(() => {
+    if (achievements.length > 0) {
+      const lastAch = achievements[achievements.length - 1];
+      setCurrentAchievement(lastAch);
+      const timer = setTimeout(() => setCurrentAchievement(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [achievements]);
+
   const startGame = useCallback((diff) => {
     sfx("/start.mp3");
     const cfg = DIFFICULTIES[diff];
@@ -410,6 +550,7 @@ const Game = ({ game, setGame }) => {
     setTotalMatches(0);
     setMatchStreak(0);
     setAchievements([]);
+    setCurrentAchievement(null);
     setScreen("playing");
   }, [sfx]);
 
@@ -444,12 +585,6 @@ const Game = ({ game, setGame }) => {
 
     if (newAchievements.length > 0) {
       setAchievements(prev => [...prev, ...newAchievements]);
-      // Show achievement popup
-      newAchievements.forEach((ach, i) => {
-        setTimeout(() => {
-          // We'll render this in the main component
-        }, i * 1500);
-      });
     }
   }, [achievements]);
 
@@ -567,6 +702,9 @@ const Game = ({ game, setGame }) => {
     setScreen((s) => s === "playing" ? "paused" : "playing");
   }, [sfx]);
 
+  // NOW we can do the conditional return
+  if (!game) return null;
+
   const cfg = DIFFICULTIES[difficulty];
   const totalPairs = cfg?.pairs ?? 6;
   const matchedPairs = matched.length / 2;
@@ -574,19 +712,6 @@ const Game = ({ game, setGame }) => {
 
   const formatTime = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   const timerColor = timeLeft <= 10 && cfg?.timeLimit ? "text-red-400 animate-pulse" : "text-white";
-
-  if (!game) return null;
-
-  // Achievement popup
-  const [currentAchievement, setCurrentAchievement] = useState(null);
-  useEffect(() => {
-    if (achievements.length > 0) {
-      const lastAch = achievements[achievements.length - 1];
-      setCurrentAchievement(lastAch);
-      const timer = setTimeout(() => setCurrentAchievement(null), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [achievements]);
 
   return (
     <AnimatePresence>
@@ -675,6 +800,14 @@ const Game = ({ game, setGame }) => {
                   onPlay={startGame}
                   onInstructions={() => setScreen("instructions")}
                   highScores={highScores}
+                />
+              )}
+
+              {/* ── INSTRUCTIONS ── */}
+              {screen === "instructions" && (
+                <InstructionsScreen
+                  key="instructions"
+                  onBack={() => setScreen("start")}
                 />
               )}
 
@@ -797,138 +930,5 @@ const Game = ({ game, setGame }) => {
     </AnimatePresence>
   );
 };
-
-// ─── Additional Components ──────────────────────────────────────────────────────
-
-const PauseOverlay = ({ onResume, onRestart, onExit }) => (
-  <motion.div
-    initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-    className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-5 rounded-2xl"
-    style={{ background: "rgba(0,0,0,0.85)", backdropFilter: "blur(12px)" }}
-  >
-    <MdPause className="text-white/20" size={64} />
-    <h2 className="text-2xl font-black text-white">Paused</h2>
-    <div className="flex flex-col gap-3 w-48">
-      <button onClick={onResume} className="w-full py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-bold flex items-center justify-center gap-2">
-        <MdPlayArrow /> Resume
-      </button>
-      <button onClick={onRestart} className="w-full py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center gap-2">
-        <MdReplay /> Restart
-      </button>
-      <button onClick={onExit} className="w-full py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-white/60 font-bold">
-        Exit Game
-      </button>
-    </div>
-  </motion.div>
-);
-
-const ResultScreen = ({ won, score, isNewRecord, moves, timeLeft, difficulty, combo, matchStreak, onRestart, onExit }) => (
-  <motion.div
-    initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
-    className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-5 rounded-2xl px-6 text-center"
-    style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(16px)" }}
-  >
-    <motion.div
-      initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }}
-      transition={{ type: "spring", damping: 12, delay: 0.1 }}
-      className="text-7xl"
-    >
-      {won ? "🏆" : "💀"}
-    </motion.div>
-    <div>
-      <h2 className={`text-3xl font-black ${won ? "text-yellow-400" : "text-red-400"}`}>
-        {won ? "You Won!" : "Game Over"}
-      </h2>
-      <p className="text-white/40 text-sm mt-1">
-        {won
-          ? `Completed in ${moves} moves`
-          : `Better luck next time on ${DIFFICULTIES[difficulty]?.label}`}
-      </p>
-    </div>
-
-    {won && (
-      <>
-        <div className="bg-white/8 rounded-2xl px-8 py-4 border border-white/10 flex flex-col items-center">
-          <span className="text-white/40 text-xs uppercase tracking-widest mb-1">Final Score</span>
-          <span className="text-yellow-400 font-black text-5xl">{score}</span>
-          {isNewRecord && (
-            <motion.div
-              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}
-              className="flex items-center gap-1 mt-2 text-emerald-400 text-xs font-bold"
-            >
-              <HiSparkles /> New Record!
-            </motion.div>
-          )}
-        </div>
-
-        <div className="flex gap-4 text-sm">
-          <div className="text-center">
-            <div className="text-white/40 text-xs">Best Combo</div>
-            <div className="text-orange-400 font-bold text-lg">{combo}x</div>
-          </div>
-          <div className="text-center">
-            <div className="text-white/40 text-xs">Longest Streak</div>
-            <div className="text-purple-400 font-bold text-lg">{matchStreak}</div>
-          </div>
-          <div className="text-center">
-            <div className="text-white/40 text-xs">Difficulty</div>
-            <div className="text-blue-400 font-bold text-lg">{DIFFICULTIES[difficulty]?.label}</div>
-          </div>
-        </div>
-      </>
-    )}
-
-    <div className="flex gap-3">
-      <motion.button
-        whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-        onClick={onRestart}
-        className="px-6 py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-bold flex items-center gap-2"
-      >
-        <MdReplay /> Play Again
-      </motion.button>
-      <motion.button
-        whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-        onClick={onExit}
-        className="px-6 py-3 rounded-2xl bg-white/8 hover:bg-white/15 text-white font-bold"
-      >
-        Exit
-      </motion.button>
-    </div>
-  </motion.div>
-);
-
-const InstructionsScreen = ({ onBack }) => (
-  <motion.div
-    initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -30 }}
-    className="flex flex-col gap-5 px-6 py-8"
-  >
-    <h2 className="text-xl font-black text-white text-center">How to Play</h2>
-    <div className="space-y-3">
-      {[
-        ["🎯", "Objective", "Find all matching pairs of cards before time or moves run out. Match rare cards for bonus points!"],
-        ["👆", "Controls", "Tap or click a card to flip it. Flip two cards — if they match, they stay revealed."],
-        ["🔥", "Combos", "Match cards in a row to build a combo! Each consecutive match adds bonus points to your score."],
-        ["⭐", "Scoring", "Each match earns coins. Combos add bonus points. Complete the game fast with few moves for a massive score bonus!"],
-        ["⏱️", "Difficulty", "Easy: unlimited. Medium: 120s timer. Hard: 60s timer + 25 move limit. Expert: 45s timer + 20 move limit."],
-        ["🏆", "Achievements", "Unlock special achievements as you play! Can you collect them all?"],
-      ].map(([icon, title, desc]) => (
-        <div key={title} className="flex gap-3 items-start bg-white/5 rounded-xl p-3 border border-white/8">
-          <span className="text-2xl flex-shrink-0">{icon}</span>
-          <div>
-            <p className="text-white font-semibold text-sm">{title}</p>
-            <p className="text-white/50 text-xs mt-0.5 leading-relaxed">{desc}</p>
-          </div>
-        </div>
-      ))}
-    </div>
-    <motion.button
-      whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-      onClick={onBack}
-      className="w-full py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-bold text-sm"
-    >
-      Got it!
-    </motion.button>
-  </motion.div>
-);
 
 export default Game;
