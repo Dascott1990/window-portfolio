@@ -1014,7 +1014,7 @@ const ProjectAI = ({ onClose }) => {
                   </button>
                 ))}
                 <span style={{ color: T.textMuted, fontSize: 10, fontFamily: T.mono }}>
-                  Powered by Claude
+                  Powered by _Dascott
                 </span>
               </div>
             </div>

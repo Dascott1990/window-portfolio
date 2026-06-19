@@ -12,11 +12,11 @@ async function request(path, options = {}) {
 }
 
 export const contactsAPI = {
-  list:   (q = "")  => request(`/api/v1/contacts${q ? `?q=${encodeURIComponent(q)}` : ""}`),
-  favorites: ()      => request("/api/v1/contacts/favorites"),
-  create: (data)     => request("/api/v1/contacts", { method: "POST", body: JSON.stringify(data) }),
-  update: (id, data) => request(`/api/v1/contacts/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-  remove: (id)       => request(`/api/v1/contacts/${id}`, { method: "DELETE" }),
+  list:      (q = "")   => request(`/api/v1/contacts${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  favorites: ()          => request("/api/v1/contacts/favorites"),
+  create:    (data)      => request("/api/v1/contacts", { method: "POST", body: JSON.stringify(data) }),
+  update:    (id, data)  => request(`/api/v1/contacts/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  remove:    (id)        => request(`/api/v1/contacts/${id}`, { method: "DELETE" }),
 };
 
 export const eventsAPI = {
@@ -42,18 +42,26 @@ export const cameraAPI = {
     if (!res.ok) throw new Error(`Save video failed: ${res.status}`);
     return (await res.json()).data;
   },
-  gallery:    (album = "all", page = 1) => request(`/api/v1/camera/gallery?album=${album}&page=${page}&per_page=30`),
-  recent:     (limit = 10)              => request(`/api/v1/camera/gallery/recent?limit=${limit}`),
-  saveEdit:   (id, data)                => request(`/api/v1/camera/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-  deleteItem: (id)                      => request(`/api/v1/camera/${id}`, { method: "DELETE" }),
+  gallery:      (album = "all", page = 1) => request(`/api/v1/camera/gallery?album=${album}&page=${page}&per_page=30`),
+  recent:       (limit = 10)              => request(`/api/v1/camera/gallery/recent?limit=${limit}`),
+  saveEdit:     (id, data)                => request(`/api/v1/camera/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteItem:   (id)                      => request(`/api/v1/camera/${id}`, { method: "DELETE" }),
   fileUrl:      (id) => `${BASE}/api/v1/camera/${id}/file`,
   thumbnailUrl: (id) => `${BASE}/api/v1/camera/${id}/thumbnail`,
 };
 
 export const transactionsAPI = {
-  list:    ()     => request("/api/v1/transactions"),
-  summary: (cur)  => request(`/api/v1/transactions/summary?currency=${cur || "CAD"}`),
-  create:  (data) => request("/api/v1/transactions", { method: "POST", body: JSON.stringify(data) }),
+  list:    () => request("/api/v1/transactions"),
+  summary: (cur) => request(`/api/v1/transactions/summary?currency=${cur || "CAD"}`),
+};
+
+export const walletAPI = {
+  get:     (currency = "CAD") => request(`/api/v1/wallet?currency=${currency}`),
+  topUp:   (data)             => request("/api/v1/wallet/top-up", { method: "POST", body: JSON.stringify(data) }),
+  send:    (data)             => request("/api/v1/wallet/send",   { method: "POST", body: JSON.stringify(data) }),
+  request: (data)             => request("/api/v1/wallet/request",{ method: "POST", body: JSON.stringify(data) }),
+  cards:   (currency = "CAD") => request(`/api/v1/wallet/cards?currency=${currency}`),
+  addCard: (data)             => request("/api/v1/wallet/cards",  { method: "POST", body: JSON.stringify(data) }),
 };
 
 export const projectsAPI = {
@@ -64,7 +72,7 @@ export const projectsAPI = {
 };
 
 export const healthAPI = {
-  list:   ()     => request("/api/v1/health"),
+  list:   () => request("/api/v1/health"),
   create: (data) => request("/api/v1/health", { method: "POST", body: JSON.stringify(data) }),
 };
 

@@ -6,8 +6,11 @@ from .transaction import Transaction
 from .health_record import HealthRecord
 from .project import Project
 from .track import Track
+from .wallet import Wallet
+from .card import Card
 
 __all__ = [
     "BaseModel", "Media", "Event", "Contact",
     "Transaction", "HealthRecord", "Project", "Track",
+    "Wallet", "Card",
 ]

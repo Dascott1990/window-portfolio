@@ -9,8 +9,6 @@ health_bp = Blueprint("health", __name__)
 
 
 class HealthRepository:
-    """Standalone repo for HealthRecord — model has no is_deleted column."""
-
     def get_all(self, page=1, per_page=30):
         return (
             HealthRecord.query
