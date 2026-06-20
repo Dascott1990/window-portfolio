@@ -26,8 +26,12 @@ def top_up():
         currency=data.get("currency", "CAD"),
         method=data.get("method", "manual"),
         reference=data.get("reference"),
+        notify_email=data.get("email"),  # optional: send top-up confirmation
     )
-    return created({"wallet": wallet.to_dict(), "transaction": txn.to_dict()}, "Wallet topped up")
+    return created(
+        {"wallet": wallet.to_dict(), "transaction": txn.to_dict()},
+        "Wallet topped up",
+    )
 
 
 @wallet_bp.post("/send")
@@ -42,6 +46,8 @@ def send_payment():
         method=data.get("method", "wallet"),
         card_id=data.get("card_id"),
         notes=data.get("notes"),
+        sender_email=data.get("sender_email"),      # your email — gets confirm/decline
+        recipient_email=data.get("recipient_email"), # their email — gets receipt
     )
     payload = txn.to_dict()
     if ok:
@@ -59,6 +65,8 @@ def request_payment():
         amount=data["amount"],
         currency=data.get("currency", "CAD"),
         notes=data.get("notes"),
+        requester_email=data.get("requester_email"), # your email (shown in the email as "from")
+        notify_email=data.get("notify_email"),        # their email — gets the request notification
     )
     return created(txn.to_dict(), "Request recorded")
 
@@ -73,7 +81,8 @@ def list_cards():
 @wallet_bp.post("/cards")
 def create_card():
     data = request.get_json(force=True)
-    missing = [f for f in ("label", "last4", "expiry_month", "expiry_year", "credit_limit") if data.get(f) is None]
+    missing = [f for f in ("label", "last4", "expiry_month", "expiry_year", "credit_limit")
+               if data.get(f) is None]
     if missing:
         raise APIError(f"Missing: {', '.join(missing)}", 400)
     wallet = svc.get_or_create_wallet(data.get("currency", "CAD"))

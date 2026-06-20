@@ -1,10 +1,15 @@
 from decimal import Decimal
+from flask import current_app
 from app import db
 from app.models import Wallet, Card, Transaction
 from app.middleware.error_handlers import APIError
 
 
 class WalletService:
+
+    def _mailer(self):
+        from app.email import email_service
+        return email_service
 
     def get_or_create_wallet(self, currency="CAD"):
         wallet = Wallet.query.filter_by(currency=currency).first()
@@ -15,7 +20,8 @@ class WalletService:
         db.session.commit()
         return wallet
 
-    def top_up(self, amount, currency="CAD", method="manual", reference=None):
+    def top_up(self, amount, currency="CAD", method="manual",
+               reference=None, notify_email=None):
         amount = Decimal(str(amount))
         if amount <= 0:
             raise APIError("Top-up amount must be positive", 400)
@@ -29,21 +35,30 @@ class WalletService:
         )
         db.session.add(txn)
         db.session.commit()
+        if notify_email:
+            try:
+                self._mailer().send_top_up_confirmation(notify_email, txn)
+            except Exception as e:
+                current_app.logger.error(f"Top-up email failed: {e}")
         return wallet, txn
 
     def send_payment(self, merchant, amount, currency="CAD",
-                     method="wallet", card_id=None, notes=None):
+                     method="wallet", card_id=None, notes=None,
+                     sender_email=None, recipient_email=None):
         amount = Decimal(str(amount))
         if amount <= 0:
             raise APIError("Amount must be positive", 400)
         if not merchant or not merchant.strip():
             raise APIError("Merchant is required", 400)
+
         wallet = self.get_or_create_wallet(currency)
         card = None
         if card_id:
             card = Card.query.filter_by(id=card_id, is_active=True).first()
             if not card:
                 raise APIError("Card not found or inactive", 404)
+
+        # Real funds check — no randomness
         if card:
             available = card.credit_limit - card.spent
             if amount > available:
@@ -55,6 +70,11 @@ class WalletService:
                 )
                 db.session.add(txn)
                 db.session.commit()
+                if sender_email:
+                    try:
+                        self._mailer().send_payment_declined(sender_email, txn)
+                    except Exception as e:
+                        current_app.logger.error(f"Decline email failed: {e}")
                 return txn, False
         else:
             if amount > wallet.balance:
@@ -66,13 +86,21 @@ class WalletService:
                 )
                 db.session.add(txn)
                 db.session.commit()
+                if sender_email:
+                    try:
+                        self._mailer().send_payment_declined(sender_email, txn)
+                    except Exception as e:
+                        current_app.logger.error(f"Decline email failed: {e}")
                 return txn, False
+
+        # Debit atomically
         if card:
             card.spent = card.spent + amount
             db.session.add(card)
         else:
             wallet.balance = wallet.balance - amount
             db.session.add(wallet)
+
         txn = Transaction(
             wallet_id=wallet.id, card_id=card.id if card else None,
             direction="debit", merchant=merchant.strip(),
@@ -81,14 +109,30 @@ class WalletService:
         )
         db.session.add(txn)
         db.session.commit()
+
+        # Send confirmation to sender + receipt to recipient
+        mailer = self._mailer()
+        if sender_email:
+            try:
+                mailer.send_payment_confirmation(sender_email, txn)
+            except Exception as e:
+                current_app.logger.error(f"Sender confirm email failed: {e}")
+        if recipient_email:
+            try:
+                mailer.send_payment_sent(recipient_email, txn)
+            except Exception as e:
+                current_app.logger.error(f"Recipient notify email failed: {e}")
+
         return txn, True
 
-    def request_payment(self, from_party, amount, currency="CAD", notes=None):
+    def request_payment(self, from_party, amount, currency="CAD",
+                        notes=None, requester_email=None, notify_email=None):
         amount = Decimal(str(amount))
         if amount <= 0:
             raise APIError("Amount must be positive", 400)
         if not from_party or not from_party.strip():
             raise APIError("from_party is required", 400)
+
         wallet = self.get_or_create_wallet(currency)
         txn = Transaction(
             wallet_id=wallet.id, direction="credit",
@@ -98,6 +142,17 @@ class WalletService:
         )
         db.session.add(txn)
         db.session.commit()
+
+        # Email the person being requested
+        if notify_email:
+            try:
+                self._mailer().send_payment_request(
+                    notify_email, txn,
+                    requester_name=requester_email or "NovaPay User"
+                )
+            except Exception as e:
+                current_app.logger.error(f"Request email failed: {e}")
+
         return txn
 
     def list_cards(self, wallet):

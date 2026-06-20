@@ -210,6 +210,8 @@ function SendTab({ wallet, cards, onWalletChanged }) {
   const [merchant,       setMerchant]       = useState(null);
   const [customMerchant, setCustomMerchant] = useState("");
   const [note,           setNote]           = useState("");
+  const [senderEmail,    setSenderEmail]    = useState("");
+  const [recipientEmail, setRecipientEmail] = useState("");
   const [useCard,        setUseCard]        = useState(null); // null = pay from wallet balance
   const [result,         setResult]         = useState(null); // the real transaction record
   const [error,          setError]          = useState(null);
@@ -228,6 +230,8 @@ function SendTab({ wallet, cards, onWalletChanged }) {
         method: useCard ? "card" : "wallet",
         card_id: useCard?.id,
         notes: note || undefined,
+        sender_email: senderEmail || undefined,
+        recipient_email: recipientEmail || undefined,
       });
       setResult(txn);
       setStep(txn.status === "success" ? "success" : "failed");
@@ -241,7 +245,8 @@ function SendTab({ wallet, cards, onWalletChanged }) {
 
   const reset = () => {
     setStep("amount"); setAmount(""); setMerchant(null);
-    setCustomMerchant(""); setNote(""); setUseCard(null); setResult(null); setError(null);
+    setCustomMerchant(""); setNote(""); setSenderEmail(""); setRecipientEmail("");
+    setUseCard(null); setResult(null); setError(null);
   };
 
   const availableBalance = wallet ? Number(wallet.balance) : 0;
@@ -356,6 +361,16 @@ function SendTab({ wallet, cards, onWalletChanged }) {
               placeholder="Add a note (optional)…"
               style={{ padding: "10px 14px", borderRadius: 10, background: "rgba(255,255,255,0.06)",
                 border: `1px solid ${C.border}`, color: "#fff", fontSize: 13, outline: "none" }} />
+            <input value={senderEmail} onChange={e => setSenderEmail(e.target.value)}
+              type="email"
+              placeholder="Your email — get a confirmation receipt (optional)"
+              style={{ padding: "10px 14px", borderRadius: 10, background: "rgba(255,255,255,0.06)",
+                border: `1px solid ${C.border}`, color: "#fff", fontSize: 13, outline: "none" }} />
+            <input value={recipientEmail} onChange={e => setRecipientEmail(e.target.value)}
+              type="email"
+              placeholder="Recipient email — notify them of payment (optional)"
+              style={{ padding: "10px 14px", borderRadius: 10, background: "rgba(255,255,255,0.06)",
+                border: `1px solid ${C.border}`, color: "#fff", fontSize: 13, outline: "none" }} />
             <motion.button whileTap={{ scale: 0.97 }}
               onClick={() => (merchant && (merchant.name !== "Custom" || customMerchant)) && setStep("confirm")}
               style={{ padding: "15px 0", borderRadius: 14,
@@ -393,7 +408,9 @@ function SendTab({ wallet, cards, onWalletChanged }) {
                 { label: "TO",     value: finalMerchant },
                 { label: "FROM",   value: useCard ? `NovaPay Card ···· ${useCard.last4}` : "NovaPay Wallet Balance" },
                 { label: "METHOD", value: useCard ? "Card" : "Wallet" },
-                ...(note ? [{ label: "NOTE", value: note }] : []),
+                ...(note           ? [{ label: "NOTE",      value: note }]           : []),
+                ...(senderEmail    ? [{ label: "YOUR EMAIL",value: senderEmail }]     : []),
+                ...(recipientEmail ? [{ label: "NOTIFY",    value: recipientEmail }]  : []),
               ].map(r => (
                 <div key={r.label} style={{ padding: "10px 20px", display: "flex",
                   justifyContent: "space-between", borderBottom: `1px solid ${C.border}` }}>
@@ -557,16 +574,24 @@ function BackButton({ onClick }) {
 // ─── Request tab — real persisted "pending" transaction, no money moves ───────
 function RequestTab({ wallet, onWalletChanged }) {
   const [amount, setAmount] = useState("");
-  const [from,   setFrom]   = useState("");
-  const [sent,   setSent]   = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error,  setError]  = useState(null);
+  const [from,          setFrom]          = useState("");
+  const [requesterEmail,setRequesterEmail] = useState("");
+  const [notifyEmail,   setNotifyEmail]    = useState("");
+  const [sent,          setSent]           = useState(false);
+  const [saving,        setSaving]         = useState(false);
+  const [error,         setError]          = useState(null);
 
   const handleSend = async () => {
     setSaving(true);
     setError(null);
     try {
-      await walletAPI.request({ from, amount: parseFloat(amount) || 0, currency: wallet?.currency || "CAD" });
+      await walletAPI.request({
+        from,
+        amount: parseFloat(amount) || 0,
+        currency: wallet?.currency || "CAD",
+        requester_email: requesterEmail || undefined,
+        notify_email: notifyEmail || undefined,
+      });
       setSent(true);
       onWalletChanged();
     } catch (e) {
@@ -613,6 +638,16 @@ function RequestTab({ wallet, onWalletChanged }) {
       <div style={{ height: 1, background: `linear-gradient(90deg, transparent, ${C.gold}55, transparent)` }} />
       <input value={from} onChange={e => setFrom(e.target.value)}
         placeholder="Request from (name or email)…"
+        style={{ padding: "12px 14px", borderRadius: 10, background: "rgba(255,255,255,0.05)",
+          border: `1px solid ${C.border}`, color: "#fff", fontSize: 13, outline: "none" }} />
+      <input value={notifyEmail} onChange={e => setNotifyEmail(e.target.value)}
+        type="email"
+        placeholder="Their email — send them the payment request (optional)"
+        style={{ padding: "12px 14px", borderRadius: 10, background: "rgba(255,255,255,0.05)",
+          border: `1px solid ${C.border}`, color: "#fff", fontSize: 13, outline: "none" }} />
+      <input value={requesterEmail} onChange={e => setRequesterEmail(e.target.value)}
+        type="email"
+        placeholder="Your email — get notified when paid (optional)"
         style={{ padding: "12px 14px", borderRadius: 10, background: "rgba(255,255,255,0.05)",
           border: `1px solid ${C.border}`, color: "#fff", fontSize: 13, outline: "none" }} />
       {error && <p style={{ color: C.red, fontSize: 12 }}>{error}</p>}
@@ -874,9 +909,10 @@ function CardsTab({ wallet, cards, onCardsChanged }) {
 
 // ─── Top-up modal — the only legitimate way balance increases ─────────────────
 function TopUpModal({ wallet, onClose, onDone }) {
-  const [amount, setAmount] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error,  setError]  = useState(null);
+  const [amount,     setAmount]     = useState("");
+  const [topUpEmail, setTopUpEmail] = useState("");
+  const [saving,     setSaving]     = useState(false);
+  const [error,      setError]      = useState(null);
 
   const handleTopUp = async () => {
     const amt = parseFloat(amount);
@@ -884,7 +920,7 @@ function TopUpModal({ wallet, onClose, onDone }) {
     setSaving(true);
     setError(null);
     try {
-      await walletAPI.topUp({ amount: amt, currency: wallet?.currency || "CAD", method: "manual" });
+      await walletAPI.topUp({ amount: amt, currency: wallet?.currency || "CAD", method: "manual", email: topUpEmail || undefined });
       onDone();
     } catch (e) {
       setError(e.message);
@@ -918,6 +954,15 @@ function TopUpModal({ wallet, onClose, onDone }) {
               fontFamily: "monospace" }} />
         </div>
         {error && <p style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>{error}</p>}
+        <input
+          type="email"
+          value={topUpEmail}
+          onChange={e => setTopUpEmail(e.target.value)}
+          placeholder="Your email — get a top-up receipt (optional)"
+          style={{ width: "100%", padding: "10px 14px", borderRadius: 10, marginBottom: 10,
+            background: "rgba(255,255,255,0.05)", border: `1px solid ${C.border}`,
+            color: "#fff", fontSize: 12, outline: "none", boxSizing: "border-box" }}
+        />
         <motion.button whileTap={{ scale: 0.97 }} onClick={handleTopUp} disabled={saving}
           style={{ width: "100%", padding: "14px 0", borderRadius: 12,
             background: `linear-gradient(135deg, ${C.gold}, #a07830)`,

@@ -1,1026 +1,756 @@
 "use client";
 /**
- * ╔═══════════════════════════════════════════════════════════════════════╗
- * ║  PROJECT AI  —  Cognitive Portfolio Intelligence System  v4.0        ║
- * ║  The autonomous AI engineer embedded inside the portfolio OS.         ║
- * ║  Powered by Anthropic Claude · Real streaming · System-aware          ║
- * ╚═══════════════════════════════════════════════════════════════════════╝
+ * ProjectAI.js — "Founder's Desk"
+ * ─────────────────────────────────────────────────────────────────────────
+ * An AI that builds real, persistent artifacts with you — not a chatbot.
+ *
+ * Two project types, same core mechanic: fixed sections, each drafted by
+ * the AI, each followed by a blunt critical-insight pass, each revisable
+ * by leaving a comment the AI rewrites against. Every revision is kept
+ * in a visible history.
+ *
+ *   · Business Plan — Problem → Solution → Market → Model → Competition
+ *     → Risks → Financials → Go-to-Market
+ *   · Creative Writing — Short Story / Screenplay / Poem presets, each
+ *     with its own section structure (the AI critiques craft, not numbers)
+ *
+ * Projects persist in localStorage so you can run several at once,
+ * bookmark the ones that matter, and pick up exactly where you left off.
+ * Each section shows a real computed reading time and can be read aloud
+ * via the browser's native SpeechSynthesis API — no backend, no cost.
+ *
+ * Streams from /api/v1/ai/chat — same contract as the rest of this OS.
  */
 
-import React, {
-  useState, useEffect, useRef, useCallback, useReducer, useMemo,
-} from "react";
-import { motion, AnimatePresence, useMotionValue, useSpring } from "framer-motion";
+import React, { useState, useRef, useCallback, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 
-// ─── Inline SVG icon primitive ────────────────────────────────────────────────
-const Ic = ({ d, size = 16, className = "", sw = 1.5, fill = "none" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill={fill}
-    stroke="currentColor" strokeWidth={sw} strokeLinecap="round"
-    strokeLinejoin="round" className={className}>
+// ── Design tokens ────────────────────────────────────────────────────────────
+const T = {
+  void:      "#0B0D12",
+  surface:   "#13161F",
+  panel:     "#15181F",
+  line:      "rgba(255,255,255,0.08)",
+  lineBri:   "rgba(255,255,255,0.16)",
+  paper:     "#E8E4DC",
+  dim:       "#5B6478",
+  faint:     "rgba(91,100,120,0.5)",
+  ember:     "#FF6B35",
+  emberDim:  "rgba(255,107,53,0.35)",
+  insight:   "#FFB020",
+  insightDim:"rgba(255,176,32,0.12)",
+  done:      "#39D98A",
+  violet:    "#9B8CFF",
+  violetDim: "rgba(155,140,255,0.12)",
+  serif:     "'Fraunces', Georgia, serif",
+  sans:      "'Inter', -apple-system, sans-serif",
+  mono:      "'JetBrains Mono', 'SF Mono', monospace",
+};
+
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+const STORAGE_KEY = "founders_desk_projects_v1";
+
+// ── Project type definitions — fixed section structures ───────────────────
+const BUSINESS_SECTIONS = [
+  { id: "problem",     label: "Problem",       prompt: "What real, specific problem does this business solve? Who feels this pain, how often, and how badly?" },
+  { id: "solution",    label: "Solution",      prompt: "What is the actual product or service? How does it solve the problem from the previous section?" },
+  { id: "market",      label: "Market",        prompt: "Who is the customer, how big is the realistic addressable market, and how do you know?" },
+  { id: "model",       label: "Business Model",prompt: "How does this make money? Pricing, unit economics, revenue streams." },
+  { id: "competition", label: "Competition",   prompt: "Who else solves this today (including non-obvious alternatives), and what's the actual edge here?" },
+  { id: "risks",       label: "Risks",         prompt: "What could realistically kill this business? Be specific, not generic." },
+  { id: "financials",  label: "Financials",    prompt: "Rough cost structure, runway needs, and what it takes to reach breakeven." },
+  { id: "gtm",         label: "Go-to-Market",  prompt: "How do the first 100 customers actually get acquired? Be concrete." },
+];
+
+const CREATIVE_PRESETS = {
+  story: {
+    label: "Short Story",
+    sections: [
+      { id: "premise",   label: "Premise",        prompt: "The core idea in one or two sentences — what happens, and why does it matter?" },
+      { id: "characters",label: "Characters",     prompt: "Who is this story about? Give them a specific want and a specific flaw." },
+      { id: "setting",   label: "Setting",        prompt: "Where and when. Make the setting feel inhabited, not generic." },
+      { id: "opening",   label: "Opening Scene",  prompt: "Write the actual opening — the first thing the reader experiences." },
+      { id: "turn",      label: "The Turn",       prompt: "The moment things change or a truth surfaces. Write it as prose, not a summary." },
+      { id: "ending",    label: "Ending",         prompt: "How it lands. Write the actual closing beat." },
+    ],
+  },
+  screenplay: {
+    label: "Screenplay",
+    sections: [
+      { id: "logline",   label: "Logline",        prompt: "One sentence: protagonist, goal, obstacle, stakes." },
+      { id: "protagonist",label:"Protagonist",    prompt: "Who they are, what they want, what they're afraid of." },
+      { id: "world",     label: "World & Tone",   prompt: "The setting and the tonal register — funny, bleak, tense, warm." },
+      { id: "scene1",    label: "Opening Scene",  prompt: "Write it in proper scene format — slugline, action, dialogue." },
+      { id: "midpoint",  label: "Midpoint Turn",  prompt: "The moment the story's direction shifts. Write the scene." },
+      { id: "climax",    label: "Climax",         prompt: "The confrontation the whole story has been building toward. Write the scene." },
+    ],
+  },
+  poem: {
+    label: "Poem",
+    sections: [
+      { id: "theme",     label: "Theme & Image",  prompt: "The central feeling or image this poem orbits. Be specific and sensory." },
+      { id: "voice",     label: "Voice",          prompt: "Who is speaking, and in what register — confessional, distant, playful?" },
+      { id: "draft1",    label: "First Stanza",   prompt: "Write the opening stanza. Let the image do the work." },
+      { id: "draft2",    label: "Middle",         prompt: "Develop or complicate the image from the first stanza." },
+      { id: "close",     label: "Closing Lines",  prompt: "Land the poem — the line the reader keeps." },
+    ],
+  },
+};
+
+const PROJECT_TYPES = {
+  business:  { label: "Business Plan",    icon: "spark",   accent: T.ember,  sections: BUSINESS_SECTIONS },
+  creative:  { label: "Creative Writing", icon: "feather", accent: T.violet, presets: CREATIVE_PRESETS },
+};
+
+const uid = () => Math.random().toString(36).slice(2, 10);
+
+// ── Persistence ──────────────────────────────────────────────────────────────
+function loadProjects() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return []; }
+}
+function saveProjects(projects) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(projects)); } catch {}
+}
+
+// ── Reading time + TTS ──────────────────────────────────────────────────────
+function readingTime(text) {
+  const words = (text || "").trim().split(/\s+/).filter(Boolean).length;
+  const mins = Math.max(1, Math.round(words / 200));
+  return `${mins} min read`;
+}
+
+function useSpeech() {
+  const [speakingId, setSpeakingId] = useState(null);
+
+  const speak = useCallback((id, text) => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    if (speakingId === id) { setSpeakingId(null); return; }
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = 1.0;
+    utter.onend = () => setSpeakingId(null);
+    utter.onerror = () => setSpeakingId(null);
+    setSpeakingId(id);
+    window.speechSynthesis.speak(utter);
+  }, [speakingId]);
+
+  const stop = useCallback(() => {
+    if (typeof window !== "undefined") window.speechSynthesis?.cancel();
+    setSpeakingId(null);
+  }, []);
+
+  useEffect(() => () => { if (typeof window !== "undefined") window.speechSynthesis?.cancel(); }, []);
+
+  return { speakingId, speak, stop };
+}
+
+// ── Icons ──────────────────────────────────────────────────────────────────
+const Ic = ({ d, size = 16, sw = 1.6, color = "currentColor", style }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color}
+    strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" style={style}>
     {(Array.isArray(d) ? d : [d]).map((p, i) => <path key={i} d={p} />)}
   </svg>
 );
-
-// ─── Design tokens ────────────────────────────────────────────────────────────
-const T = {
-  bg:         "#06070d",
-  surface:    "rgba(255,255,255,0.04)",
-  surfaceHov: "rgba(255,255,255,0.07)",
-  border:     "rgba(255,255,255,0.08)",
-  borderBri:  "rgba(255,255,255,0.14)",
-  accent:     "#7c6df7",       // violet
-  accentB:    "#38bdf8",       // sky
-  accentG:    "#34d399",       // emerald
-  accentP:    "#f472b6",       // pink
-  accentO:    "#fb923c",       // orange
-  text:       "#e8e8f0",
-  textDim:    "rgba(232,232,240,0.45)",
-  textMuted:  "rgba(232,232,240,0.22)",
-  mono:       "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace",
-  sans:       "'Inter', '-apple-system', 'Helvetica Neue', sans-serif",
+const ICONS = {
+  close:    "M18 6 6 18M6 6l12 12",
+  send:     "M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z",
+  spark:    "M12 2 14 9 21 11 14 13 12 20 10 13 3 11 10 9 12 2Z",
+  feather:  ["M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z", "M16 8 2 22", "M17.5 15H9"],
+  check:    "M20 6 9 17l-5-5",
+  edit:     "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5Z",
+  insight:  "M9.663 17h4.673M12 3a6 6 0 0 0-6 6c0 1.887.787 3.39 2.06 4.5C9.04 14.408 9.5 15.5 9.5 17h5c0-1.5.46-2.592 1.44-3.5C17.213 12.39 18 10.887 18 9a6 6 0 0 0-6-6Z",
+  history:  "M3 12a9 9 0 1 0 18 0A9 9 0 0 0 3 12zm9-4v4l3 3",
+  download: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3",
+  arrow:    "M5 12h14M12 5l7 7-7 7",
+  back:     "M19 12H5m0 0 7 7m-7-7 7-7",
+  star:     "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z",
+  plus:     "M12 5v14M5 12h14",
+  volume:   "M11 5 6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07",
+  volumeOff:"M11 5 6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6",
+  trash:    "M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6h16Z",
 };
 
-// ─── System prompt — deep portfolio context ───────────────────────────────────
-const SYSTEM_PROMPT = `You are ARIA (Adaptive Reasoning & Intelligence Architecture), the autonomous cognitive AI embedded inside Rasheed Tajudeen's portfolio operating system. You are not a generic assistant — you are a specialized intelligence with deep knowledge of this specific system.
-
-PORTFOLIO OWNER: Rasheed Tajudeen
-- Full-Stack Developer & Cybersecurity Engineer
-- Founder @ Dascott Global Ventures (Toronto, ON, Canada)
-- Experience: React, Next.js, Node.js, TypeScript, PostgreSQL, Python, Docker, AWS, Swift, Flutter
-- Cybersecurity: Penetration testing, secure API design, vulnerability assessment, network security
-- Email: dascottblog@gmail.com | Phone: +1 416 505 6927 | GitHub: github.com/dascott1990
-
-PORTFOLIO OS ARCHITECTURE — Apps you are embedded within:
-1. Neural Camera Pro — Real camera with 8 modes (Portrait, Photo, Video, Night, Pro, AI, Burst, Cinematic), canvas AI overlays, tap-to-focus, pinch zoom, burst mode, dev diagnostics panel
-2. Music App — Real-time Deezer API search, 30s previews, animated waveform visualizer, queue management, shuffle/repeat, keyboard shortcuts
-3. Calendar — Full month view, event creation, real-time reminders, animated day view
-4. Asset Intelligence — Live market data (BTC, ETH, SOL, AAPL, TSLA, NVDA, EUR/USD, GBP/USD, Gold) via CoinGecko, Yahoo Finance, Frankfurter APIs with 30s refresh
-5. Health / DoctorAI — Medical image analysis simulation, AI diagnosis, PDF export
-6. Fintech / NovaPay — NFC contactless payment simulation, transaction history
-7. MapApp — Leaflet.js interactive map, geolocation, dark/light modes, search
-8. Resume — Full interactive resume with skills, experience, education, contact copy
-9. Contact — Searchable contacts, favorites, detail pane
-10. Projects — FusionPay (React Native), Hyperswitch, DBOS Transact, Dask Blog, States API, Heart Disease Expert System, QR Attendance
-11. Game — Memory card matching game with difficulty levels, scoring, timer
-12. Desktop OS — Draggable icons, dark mode, taskbar, start menu, notifications, mobile/desktop responsive
-
-TECHNOLOGY STACK: Next.js 14, React 18, Framer Motion, TailwindCSS, Canvas API, MediaDevices API, Web APIs, Deezer API, CoinGecko API, Yahoo Finance, Frankfurter API, Leaflet.js, MediaRecorder API
-
-YOUR ROLE: You are the intelligence layer of this OS. You understand every module, can explain technical decisions, discuss architecture, help recruiters understand the system, answer questions about Rasheed's background, conduct technical deep-dives, generate code, analyze systems, and operate as a real-time AI assistant embedded in a production portfolio.
-
-PERSONALITY: Precise, technically confident, occasionally witty. Think like the intersection of a principal engineer and a thoughtful product lead. Never sycophantic. Direct, substantive, insightful. You surface non-obvious connections and insights.
-
-FORMATTING RULES:
-- Use markdown naturally: **bold**, \`code\`, headers (##), bullet lists, numbered steps
-- For code blocks, always specify language: \`\`\`tsx, \`\`\`bash, etc.
-- Keep responses focused and scannable — avoid walls of prose
-- Surface your reasoning when it adds value
-- When discussing the portfolio, speak from first-person perspective of the system ("this OS...", "the camera module...")`;
-
-// ─── Suggested prompts organized by category ─────────────────────────────────
-const PROMPT_GROUPS = [
-  {
-    label: "System Architecture",
-    color: T.accent,
-    prompts: [
-      "Explain the full technical architecture of this portfolio OS",
-      "How does the Neural Camera's canvas overlay pipeline work?",
-      "Walk me through the Asset Intelligence data flow and APIs",
-      "What makes the Music App's search different from a typical implementation?",
-    ],
-  },
-  {
-    label: "About Rasheed",
-    color: T.accentB,
-    prompts: [
-      "What are Rasheed's strongest technical skills?",
-      "Tell me about Dascott Global Ventures",
-      "What cybersecurity projects has Rasheed built?",
-      "Why should I hire Rasheed for a senior engineering role?",
-    ],
-  },
-  {
-    label: "Code & Engineering",
-    color: T.accentG,
-    prompts: [
-      "Generate a TypeScript API route for real-time market data",
-      "Write a React hook for the camera stream with cleanup",
-      "How would you implement WebSocket real-time updates in this OS?",
-      "Show me a production-ready auth middleware in Next.js",
-    ],
-  },
-  {
-    label: "Innovation & Vision",
-    color: T.accentO,
-    prompts: [
-      "What 3 features would make this portfolio unforgettable to recruiters?",
-      "How would you evolve this OS into an AI-native product?",
-      "Design a system for real-time collaborative portfolio viewing",
-      "What's the most technically impressive thing in this entire codebase?",
-    ],
-  },
-];
-
-// ─── Message types ────────────────────────────────────────────────────────────
-// role: "user" | "assistant" | "system"
-// content: string
-// id: string
-// timestamp: Date
-// tokens?: number
-// model?: string
-
-// ─── Reducer ─────────────────────────────────────────────────────────────────
-const initialState = {
-  messages:      [],
-  isStreaming:   false,
-  inputValue:    "",
-  showSuggested: true,
-  activeGroup:   0,
-  totalTokens:   0,
-  sessionId:     null,
-  error:         null,
-  sidebarOpen:   false,
-  fontSize:      14,
-  showThinking:  true,
-};
-
-function reducer(state, { type, payload }) {
-  switch (type) {
-    case "SET":       return { ...state, ...payload };
-    case "ADD_MSG":   return { ...state, messages: [...state.messages, payload] };
-    case "UPD_LAST":  return {
-      ...state,
-      messages: state.messages.map((m, i) =>
-        i === state.messages.length - 1 ? { ...m, ...payload } : m
-      ),
-    };
-    case "CLEAR":     return { ...state, messages: [], totalTokens: 0, showSuggested: true, error: null };
-    default:          return state;
-  }
-}
-
-// ─── Utilities ────────────────────────────────────────────────────────────────
-const uid    = () => Math.random().toString(36).slice(2, 10);
-const now    = () => new Date();
-const fmtTs  = (d) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-const fmtTok = (n) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
-
-// ─── Markdown renderer (no external deps) ─────────────────────────────────────
-function renderMarkdown(text) {
-  if (!text) return null;
-
-  // Split into lines and process
-  const lines   = text.split("\n");
-  const output  = [];
-  let inCode    = false;
-  let codeLines = [];
-  let codeLang  = "";
-  let inList    = false;
-  let listItems = [];
-
-  const flushList = () => {
-    if (listItems.length === 0) return;
-    output.push(
-      <ul key={`ul-${output.length}`} style={{ margin: "8px 0 8px 0", paddingLeft: 18 }}>
-        {listItems.map((item, i) => (
-          <li key={i} style={{ color: T.text, fontSize: "inherit", lineHeight: 1.65, marginBottom: 3 }}>
-            {inlineMarkdown(item)}
-          </li>
-        ))}
-      </ul>
-    );
-    listItems = [];
-    inList = false;
-  };
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    // Code block
-    if (line.startsWith("```")) {
-      if (!inCode) {
-        flushList();
-        inCode    = true;
-        codeLang  = line.slice(3).trim() || "text";
-        codeLines = [];
-      } else {
-        inCode = false;
-        output.push(
-          <div key={`code-${i}`} style={{ margin: "12px 0", borderRadius: 10, overflow: "hidden", border: `1px solid ${T.border}` }}>
-            <div style={{ background: "rgba(255,255,255,0.05)", padding: "6px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontFamily: T.mono, fontSize: 10, color: T.accent, letterSpacing: "0.06em" }}>
-                {codeLang.toUpperCase()}
-              </span>
-            </div>
-            <pre style={{
-              background: "rgba(0,0,0,0.35)", margin: 0, padding: "14px 16px",
-              overflowX: "auto", fontFamily: T.mono, fontSize: 12.5,
-              lineHeight: 1.65, color: "#c9d1d9",
-            }}>
-              <code>{codeLines.join("\n")}</code>
-            </pre>
-          </div>
-        );
-        codeLines = [];
-      }
-      continue;
-    }
-    if (inCode) { codeLines.push(line); continue; }
-
-    // Headings
-    if (line.startsWith("### ")) {
-      flushList();
-      output.push(<h3 key={i} style={{ color: T.text, fontSize: 14, fontWeight: 700, margin: "16px 0 6px", letterSpacing: "0.01em" }}>{line.slice(4)}</h3>);
-      continue;
-    }
-    if (line.startsWith("## ")) {
-      flushList();
-      output.push(<h2 key={i} style={{ color: T.text, fontSize: 16, fontWeight: 700, margin: "18px 0 8px", borderBottom: `1px solid ${T.border}`, paddingBottom: 6 }}>{line.slice(3)}</h2>);
-      continue;
-    }
-    if (line.startsWith("# ")) {
-      flushList();
-      output.push(<h1 key={i} style={{ color: T.text, fontSize: 18, fontWeight: 800, margin: "20px 0 10px" }}>{line.slice(2)}</h1>);
-      continue;
-    }
-
-    // List items
-    if (/^[-*] /.test(line) || /^\d+\. /.test(line)) {
-      inList = true;
-      listItems.push(/^[-*] /.test(line) ? line.slice(2) : line.replace(/^\d+\. /, ""));
-      continue;
-    }
-
-    // Horizontal rule
-    if (/^---+$/.test(line.trim())) {
-      flushList();
-      output.push(<hr key={i} style={{ border: "none", borderTop: `1px solid ${T.border}`, margin: "16px 0" }} />);
-      continue;
-    }
-
-    // Empty line
-    if (line.trim() === "") {
-      flushList();
-      output.push(<div key={i} style={{ height: 8 }} />);
-      continue;
-    }
-
-    // Paragraph
-    flushList();
-    output.push(
-      <p key={i} style={{ color: T.text, lineHeight: 1.72, margin: "4px 0", fontSize: "inherit" }}>
-        {inlineMarkdown(line)}
-      </p>
-    );
-  }
-
-  flushList();
-  return output;
-}
-
-// Inline markdown: bold, italic, inline code, links
-function inlineMarkdown(text) {
+// ── Markdown — minimal, deliberate ─────────────────────────────────────────
+function renderInline(text) {
   const parts = [];
-  const re    = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[([^\]]+)\]\(([^)]+)\))/g;
-  let last    = 0, match;
-
-  while ((match = re.exec(text)) !== null) {
-    if (match.index > last) parts.push(text.slice(last, match.index));
-    const m = match[0];
-    if (m.startsWith("`"))   parts.push(<code key={match.index} style={{ fontFamily: T.mono, fontSize: "0.87em", background: "rgba(124,109,247,0.18)", color: T.accent, padding: "1px 5px", borderRadius: 4 }}>{m.slice(1, -1)}</code>);
-    else if (m.startsWith("**")) parts.push(<strong key={match.index} style={{ fontWeight: 700, color: T.text }}>{m.slice(2, -2)}</strong>);
-    else if (m.startsWith("*"))  parts.push(<em key={match.index} style={{ fontStyle: "italic", color: T.textDim }}>{m.slice(1, -1)}</em>);
-    else if (m.startsWith("["))  parts.push(<a key={match.index} href={match[3]} target="_blank" rel="noopener noreferrer" style={{ color: T.accentB, textDecoration: "underline", textUnderlineOffset: 3 }}>{match[2]}</a>);
-    last = match.index + m.length;
+  let key = 0;
+  const regex = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let last = 0, m;
+  while ((m = regex.exec(text))) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    const token = m[0];
+    if (token.startsWith("**")) {
+      parts.push(<strong key={key++} style={{ color: T.paper, fontWeight: 600 }}>{token.slice(2, -2)}</strong>);
+    } else {
+      parts.push(<code key={key++} style={{ background: "rgba(255,255,255,0.06)", padding: "1px 5px", borderRadius: 4, fontFamily: T.mono, fontSize: "0.88em" }}>{token.slice(1, -1)}</code>);
+    }
+    last = m.index + token.length;
   }
-
   if (last < text.length) parts.push(text.slice(last));
-  return parts.length === 1 ? parts[0] : parts;
+  return parts;
+}
+function MarkdownBlock({ text, color }) {
+  const lines = (text || "").split("\n");
+  return (
+    <>
+      {lines.map((line, i) => {
+        const trimmed = line.trim();
+        if (!trimmed) return <div key={i} style={{ height: 9 }} />;
+        if (/^[-•]\s/.test(trimmed)) {
+          return (
+            <div key={i} style={{ display: "flex", gap: 9, marginBottom: 5 }}>
+              <span style={{ color: color || T.ember, flexShrink: 0, fontSize: 13, lineHeight: "1.7em" }}>—</span>
+              <span style={{ flex: 1 }}>{renderInline(trimmed.replace(/^[-•]\s/, ""))}</span>
+            </div>
+          );
+        }
+        return <p key={i} style={{ margin: "0 0 9px", lineHeight: 1.7 }}>{renderInline(line)}</p>;
+      })}
+    </>
+  );
 }
 
-// ─── Animated cursor ──────────────────────────────────────────────────────────
-const Cursor = () => (
-  <motion.span
-    animate={{ opacity: [1, 0, 1] }}
-    transition={{ duration: 0.9, repeat: Infinity, ease: "easeInOut" }}
-    style={{ display: "inline-block", width: 7, height: 14, background: T.accent, borderRadius: 1, verticalAlign: "text-bottom", marginLeft: 2 }}
-  />
-);
+// ── Streaming call ─────────────────────────────────────────────────────────
+async function streamCompletion(system, messages, onChunk, signal) {
+  const res = await fetch(`${API}/api/v1/ai/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ system, messages, max_tokens: 700 }),
+    signal,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const data = line.slice(6).trim();
+      if (data === "[DONE]") return;
+      try {
+        const ev = JSON.parse(data);
+        if (ev.type === "content_block_delta") onChunk(ev.delta?.text || "");
+        if (ev.type === "message_stop") return;
+        if (ev.type === "error") throw new Error(ev.message);
+      } catch {}
+    }
+  }
+}
 
-// ─── Typing animation ─────────────────────────────────────────────────────────
-const ThinkingDots = () => (
-  <div style={{ display: "flex", gap: 5, padding: "10px 2px", alignItems: "center" }}>
-    {[0, 1, 2].map((i) => (
-      <motion.div key={i}
-        animate={{ y: [0, -5, 0], opacity: [0.4, 1, 0.4] }}
-        transition={{ duration: 0.8, repeat: Infinity, delay: i * 0.18, ease: "easeInOut" }}
-        style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent }}
-      />
-    ))}
-    <span style={{ color: T.textMuted, fontSize: 11, marginLeft: 6, fontFamily: T.mono }}>ARIA is thinking…</span>
-  </div>
-);
+// ── Prompts — tuned per project type ───────────────────────────────────────
+function draftSystemPrompt(type, idea, section) {
+  if (type === "creative") {
+    return `You are a sharp creative writing mentor helping draft a piece based on this premise: "${idea}"
 
-// ─── ARIA avatar ──────────────────────────────────────────────────────────────
-const ARIAAvatar = ({ size = 32, pulse = false }) => (
-  <div style={{ position: "relative", flexShrink: 0 }}>
-    {pulse && (
-      <motion.div
-        animate={{ scale: [1, 1.55, 1], opacity: [0.4, 0, 0.4] }}
-        transition={{ duration: 2, repeat: Infinity, ease: "easeOut" }}
-        style={{ position: "absolute", inset: -4, borderRadius: "50%", background: T.accent, zIndex: 0 }}
-      />
-    )}
-    <div style={{
-      width: size, height: size, borderRadius: "50%", zIndex: 1, position: "relative",
-      background: `linear-gradient(135deg, ${T.accent} 0%, #38bdf8 50%, #34d399 100%)`,
-      display: "flex", alignItems: "center", justifyContent: "center",
-      boxShadow: `0 0 ${size / 2}px ${T.accent}55`,
-    }}>
-      <svg width={size * 0.55} height={size * 0.55} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={1.8}>
-        <path d="M12 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 14c-6 0-8 2-8 3v1h16v-1c0-1-2-3-8-3z" />
-        <path d="M18 8l2-2M6 8 4 6M12 6v2" />
-      </svg>
-    </div>
-  </div>
-);
+Write the "${section.label}" section. Focus: ${section.prompt}
 
-// ─── Message bubble ───────────────────────────────────────────────────────────
-const MessageBubble = ({ msg, fontSize, isLast, isStreaming }) => {
-  const isUser = msg.role === "user";
-  const [copied, setCopied] = useState(false);
+Rules: write the actual content — real prose/dialogue/lines, not a summary or outline. No headers, no meta-commentary, no "Here is the section" preamble. 100-180 words. Make specific, sensory, voiced choices — sound like a writer who has a point of view, not a generic AI completion.`;
+  }
+  return `You are a sharp startup advisor helping draft a real business plan for this idea: "${idea}"
 
-  const copyText = () => {
-    navigator.clipboard.writeText(msg.content).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1400);
-    });
+Write the "${section.label}" section. Focus: ${section.prompt}
+
+Rules: write the actual section content — direct, specific, concrete numbers and names where reasonable, no headers or meta-commentary, no "Here is the section" preamble. 120-200 words. Plain prose with occasional **bold** for key terms, bullet lists only if genuinely listing distinct items. Sound like a founder who has thought hard about this, not a template.`;
+}
+
+function insightSystemPrompt(type, idea, section, draftText) {
+  if (type === "creative") {
+    return `You are a blunt, experienced editor reviewing a piece of creative writing based on: "${idea}"
+
+Section: "${section.label}"
+Draft: """${draftText}"""
+
+Write ONE critical insight — the single sharpest craft issue: a flat sentence, a missed sensory beat, a cliché, pacing that drags, dialogue that doesn't sound like a real person. Be specific to this draft, not generic writing advice. 2-3 sentences. No preamble — just the note, like a real editor's margin comment.`;
+  }
+  return `You are a blunt, experienced startup advisor reviewing a business plan section for: "${idea}"
+
+Section: "${section.label}"
+Draft: """${draftText}"""
+
+Write ONE critical insight — the single sharpest gap, unrealistic assumption, or risk in this draft that a real investor or advisor would flag immediately. Be specific to this draft, not generic startup advice. 2-3 sentences. No preamble like "One concern is" — just say it directly, as if circling it in red pen.`;
+}
+
+function reviseSystemPrompt(type, idea, section, currentText, instruction) {
+  const subject = type === "creative" ? "a piece of creative writing" : "a business plan";
+  return `You are revising one section of ${subject} for: "${idea}"
+
+Section: "${section.label}"
+Current text: """${currentText}"""
+
+The author's instruction: "${instruction}"
+
+Rewrite the full section incorporating this instruction. Same rules as before: direct content, 100-200 words, no preamble, no meta-commentary about what changed — just the new section text.`;
+}
+
+// ── Section card ─────────────────────────────────────────────────────────────
+function SectionCard({ section, data, idea, type, onUpdate, isOpen, onToggle, speech }) {
+  const [comment, setComment] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const abortRef = useRef(null);
+
+  const status = !data ? "empty" : data.drafting ? "drafting" : "ready";
+  const accent = PROJECT_TYPES[type].accent;
+  const isSpeaking = speech.speakingId === section.id;
+
+  const runDraft = useCallback(async () => {
+    setBusy(true);
+    abortRef.current = new AbortController();
+    const draftId = uid();
+    onUpdate(section.id, prev => ({ ...prev, drafting: true, insight: "", insightLoading: false, text: "", history: prev?.history || [] }));
+    try {
+      let text = "";
+      await streamCompletion(
+        draftSystemPrompt(type, idea, section),
+        [{ role: "user", content: "Draft this section now." }],
+        chunk => { text += chunk; onUpdate(section.id, prev => ({ ...prev, text })); },
+        abortRef.current.signal
+      );
+      onUpdate(section.id, prev => ({ ...prev, drafting: false, insightLoading: true }));
+
+      let insight = "";
+      await streamCompletion(
+        insightSystemPrompt(type, idea, section, text),
+        [{ role: "user", content: "Give the critical insight now." }],
+        chunk => { insight += chunk; onUpdate(section.id, prev => ({ ...prev, insight })); },
+        abortRef.current.signal
+      );
+      onUpdate(section.id, prev => ({
+        ...prev, insightLoading: false,
+        history: [...(prev.history || []), { id: draftId, text, insight, ts: Date.now(), note: "Initial draft" }],
+      }));
+    } catch (e) {
+      if (e.name !== "AbortError") onUpdate(section.id, prev => ({ ...prev, drafting: false, insightLoading: false, error: "Couldn't reach the AI — check the backend." }));
+    } finally { setBusy(false); }
+  }, [idea, section, onUpdate, type]);
+
+  const runRevision = useCallback(async () => {
+    const instruction = comment.trim();
+    if (!instruction || !data?.text) return;
+    setBusy(true); setComment("");
+    abortRef.current = new AbortController();
+    const revisionId = uid();
+    onUpdate(section.id, prev => ({ ...prev, drafting: true, instruction }));
+    try {
+      let text = "";
+      await streamCompletion(
+        reviseSystemPrompt(type, idea, section, data.text, instruction),
+        [{ role: "user", content: "Revise now." }],
+        chunk => { text += chunk; onUpdate(section.id, prev => ({ ...prev, text })); },
+        abortRef.current.signal
+      );
+      onUpdate(section.id, prev => ({ ...prev, drafting: false, insightLoading: true }));
+
+      let insight = "";
+      await streamCompletion(
+        insightSystemPrompt(type, idea, section, text),
+        [{ role: "user", content: "Give the critical insight now." }],
+        chunk => { insight += chunk; onUpdate(section.id, prev => ({ ...prev, insight })); },
+        abortRef.current.signal
+      );
+      onUpdate(section.id, prev => ({
+        ...prev, insightLoading: false,
+        history: [...(prev.history || []), { id: revisionId, text, insight, ts: Date.now(), note: instruction }],
+      }));
+    } catch (e) {
+      if (e.name !== "AbortError") onUpdate(section.id, prev => ({ ...prev, drafting: false, insightLoading: false, error: "Revision failed — check the backend." }));
+    } finally { setBusy(false); }
+  }, [comment, data, idea, section, onUpdate, type]);
+
+  const restoreVersion = (version) => {
+    onUpdate(section.id, prev => ({ ...prev, text: version.text, insight: version.insight }));
+    setShowHistory(false);
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-      style={{
-        display: "flex",
-        flexDirection: isUser ? "row-reverse" : "row",
-        gap: 10,
-        padding: "2px 0",
-        alignItems: "flex-start",
-      }}
-    >
-      {/* Avatar */}
-      {!isUser ? (
-        <ARIAAvatar size={30} pulse={isLast && isStreaming} />
-      ) : (
-        <div style={{
-          width: 30, height: 30, borderRadius: "50%", flexShrink: 0,
-          background: "linear-gradient(135deg, #334155, #1e293b)",
-          border: `1px solid ${T.borderBri}`,
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }}>
-          <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth={1.8}>
-            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 3a4 4 0 110 8 4 4 0 010-8z" />
-          </svg>
+    <div style={{ borderRadius: 16, border: `1px solid ${isOpen ? T.lineBri : T.line}`, overflow: "hidden", background: T.surface, transition: "border-color 0.2s" }}>
+      <button onClick={onToggle}
+        style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px", background: "none", border: "none", cursor: "pointer" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <StatusDot status={status} accent={accent} />
+          <span style={{ fontFamily: T.serif, fontSize: 16.5, fontWeight: 500, color: T.paper }}>{section.label}</span>
+          {data?.text && <span style={{ fontFamily: T.mono, fontSize: 9, color: T.faint }}>{readingTime(data.text)}</span>}
+          {data?.history?.length > 1 && <span style={{ fontFamily: T.mono, fontSize: 9, color: T.faint }}>v{data.history.length}</span>}
         </div>
-      )}
+        <Ic d={ICONS.arrow} size={13} color={T.faint} sw={2} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} />
+      </button>
 
-      {/* Bubble */}
-      <div style={{ maxWidth: "80%", minWidth: 60 }}>
-        {/* Meta */}
-        <div style={{
-          display: "flex", alignItems: "center", gap: 6, marginBottom: 4,
-          justifyContent: isUser ? "flex-end" : "flex-start",
-        }}>
-          <span style={{ fontSize: 10, fontWeight: 600, color: isUser ? T.textMuted : T.accent, letterSpacing: "0.06em", fontFamily: T.mono }}>
-            {isUser ? "YOU" : "ARIA"}
-          </span>
-          <span style={{ fontSize: 9, color: T.textMuted, fontFamily: T.mono }}>
-            {fmtTs(msg.timestamp)}
-          </span>
-          {msg.tokens && (
-            <span style={{ fontSize: 9, color: T.textMuted, fontFamily: T.mono }}>
-              {fmtTok(msg.tokens)} tok
-            </span>
-          )}
-        </div>
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22 }} style={{ overflow: "hidden" }}>
+            <div style={{ padding: "0 18px 18px" }}>
+              {status === "empty" ? (
+                <div style={{ padding: "20px 0" }}>
+                  <p style={{ color: T.dim, fontSize: 13.5, lineHeight: 1.65, marginBottom: 14, fontFamily: T.sans }}>{section.prompt}</p>
+                  <button onClick={runDraft} disabled={busy}
+                    style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 16px", borderRadius: 10, background: accent, border: "none", color: T.void, fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: busy ? 0.6 : 1 }}>
+                    <Ic d={ICONS.spark} size={13} color={T.void} /> Draft this section
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 14 }}>
+                    <div style={{ flex: 1, color: T.dim, fontSize: 14, fontFamily: T.sans }}>
+                      {data.text ? <MarkdownBlock text={data.text} color={accent} /> : <span style={{ fontFamily: T.mono, fontSize: 12, color: T.faint }}>drafting…</span>}
+                    </div>
+                    {data.text && (
+                      <button onClick={() => speech.speak(section.id, data.text)}
+                        title={isSpeaking ? "Stop reading" : "Read aloud"}
+                        style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 9, background: isSpeaking ? accent + "22" : "rgba(255,255,255,0.04)", border: `1px solid ${isSpeaking ? accent + "55" : T.line}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                        <Ic d={isSpeaking ? ICONS.volumeOff : ICONS.volume} size={13} color={isSpeaking ? accent : T.faint} />
+                      </button>
+                    )}
+                  </div>
 
-        {/* Content */}
-        <div
-          style={{
-            padding: isUser ? "10px 14px" : "12px 16px",
-            borderRadius: isUser ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
-            background: isUser
-              ? `linear-gradient(135deg, ${T.accent}22, ${T.accent}12)`
-              : T.surface,
-            border: `1px solid ${isUser ? T.accent + "44" : T.border}`,
-            fontSize: fontSize,
-            lineHeight: 1.65,
-            color: T.text,
-            position: "relative",
-          }}
-        >
-          {isUser ? (
-            <p style={{ margin: 0, color: T.text }}>{msg.content}</p>
-          ) : msg.content === "" && isLast && isStreaming ? (
-            <ThinkingDots />
-          ) : (
-            <>
-              {renderMarkdown(msg.content)}
-              {isLast && isStreaming && <Cursor />}
-            </>
-          )}
+                  {(data.insight || data.insightLoading) && (
+                    <div style={{ display: "flex", gap: 10, padding: "12px 14px", borderRadius: 11, background: T.insightDim, border: `1px solid rgba(255,176,32,0.22)`, marginBottom: 14 }}>
+                      <Ic d={ICONS.insight} size={15} color={T.insight} />
+                      <div style={{ flex: 1 }}>
+                        <p style={{ fontFamily: T.mono, fontSize: 9, color: T.insight, letterSpacing: "0.08em", marginBottom: 4 }}>CRITICAL INSIGHT</p>
+                        <p style={{ color: "rgba(255,176,32,0.92)", fontSize: 13, lineHeight: 1.6, margin: 0 }}>
+                          {data.insightLoading && !data.insight ? "thinking…" : data.insight}
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
-          {/* Copy button — assistant messages only */}
-          {!isUser && msg.content && !isStreaming && (
-            <button
-              onClick={copyText}
-              style={{
-                position: "absolute", top: 8, right: 8,
-                background: copied ? T.accentG + "33" : "transparent",
-                border: "none", cursor: "pointer", padding: 4, borderRadius: 6,
-                color: copied ? T.accentG : T.textMuted,
-                transition: "all 0.15s",
-              }}
-              title="Copy response"
-            >
-              <Ic d={copied ? "M20 6L9 17l-5-5" : "M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"} size={13} sw={2} />
-            </button>
-          )}
-        </div>
-      </div>
-    </motion.div>
+                  {data.error && <p style={{ color: "#ff8a65", fontSize: 12.5, marginBottom: 12 }}>{data.error}</p>}
+
+                  {data.history?.length > 0 && (
+                    <button onClick={() => setShowHistory(v => !v)}
+                      style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", color: T.faint, fontSize: 11, fontFamily: T.mono, cursor: "pointer", padding: "4px 0", marginBottom: 12 }}>
+                      <Ic d={ICONS.history} size={11} /> {data.history.length} version{data.history.length !== 1 ? "s" : ""}
+                    </button>
+                  )}
+                  <AnimatePresence>
+                    {showHistory && (
+                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} style={{ overflow: "hidden", marginBottom: 12 }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {[...data.history].reverse().map((v, i) => (
+                            <button key={v.id} onClick={() => restoreVersion(v)}
+                              style={{ textAlign: "left", padding: "8px 12px", borderRadius: 9, background: "rgba(255,255,255,0.03)", border: `1px solid ${T.line}`, cursor: "pointer" }}>
+                              <p style={{ fontFamily: T.mono, fontSize: 10, color: T.faint, margin: 0 }}>{data.history.length - i}. {v.note}</p>
+                            </button>
+                          ))}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  {!data.drafting && (
+                    <div>
+                      <p style={{ fontFamily: T.mono, fontSize: 9, color: T.faint, letterSpacing: "0.08em", marginBottom: 7 }}>REVISE WITH A COMMENT</p>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <input value={comment} onChange={e => setComment(e.target.value)} onKeyDown={e => e.key === "Enter" && runRevision()}
+                          placeholder={type === "creative" ? 'e.g. "make the dialogue less formal"' : 'e.g. "make the market size more conservative"'}
+                          style={{ flex: 1, padding: "9px 12px", borderRadius: 9, fontSize: 13, background: "rgba(255,255,255,0.04)", border: `1px solid ${T.line}`, color: T.paper, outline: "none", fontFamily: T.sans }} />
+                        <button onClick={runRevision} disabled={!comment.trim() || busy}
+                          style={{ width: 36, height: 36, borderRadius: 9, flexShrink: 0, background: comment.trim() ? accent : "rgba(255,255,255,0.04)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: comment.trim() ? "pointer" : "default" }}>
+                          <Ic d={ICONS.edit} size={13} color={comment.trim() ? T.void : T.faint} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
-};
+}
 
-// ─── Prompt chip ──────────────────────────────────────────────────────────────
-const PromptChip = ({ label, color, onClick }) => (
-  <motion.button
-    whileHover={{ scale: 1.02, backgroundColor: color + "18" }}
-    whileTap={{ scale: 0.97 }}
-    onClick={onClick}
-    style={{
-      padding: "7px 13px",
-      borderRadius: 12,
-      background: color + "0d",
-      border: `1px solid ${color}2a`,
-      cursor: "pointer",
-      color: T.text,
-      fontSize: 12,
-      lineHeight: 1.4,
-      textAlign: "left",
-      transition: "all 0.15s",
-      display: "flex", alignItems: "center", gap: 7,
-    }}
-  >
-    <span style={{ width: 5, height: 5, borderRadius: "50%", background: color, flexShrink: 0 }} />
-    {label}
-  </motion.button>
-);
+function StatusDot({ status, accent }) {
+  const color = status === "ready" ? T.done : status === "drafting" ? accent : T.faint;
+  return <div style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0, boxShadow: status === "drafting" ? `0 0 8px ${accent}55` : "none" }} />;
+}
 
-// ─── Status bar (top HUD) ─────────────────────────────────────────────────────
-const StatusBar = ({ tokens, msgCount, isStreaming, onClear, onSidebar, sidebarOpen }) => (
-  <div style={{
-    display: "flex", alignItems: "center", justifyContent: "space-between",
-    padding: "10px 16px",
-    background: "rgba(0,0,0,0.4)",
-    borderBottom: `1px solid ${T.border}`,
-    flexShrink: 0,
-  }}>
-    {/* Left: ARIA identity */}
-    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-      <ARIAAvatar size={26} pulse={isStreaming} />
-      <div>
-        <div style={{ color: T.text, fontWeight: 700, fontSize: 13, letterSpacing: "0.03em" }}>
-          ARIA
+// ── Library — the home screen, all saved projects ──────────────────────────
+function Library({ projects, onOpen, onNew, onToggleBookmark, onDelete }) {
+  const sorted = [...projects].sort((a, b) => (b.bookmarked - a.bookmarked) || (b.updatedAt - a.updatedAt));
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px 60px", scrollbarWidth: "none" }}>
+      <div style={{ maxWidth: 640, margin: "0 auto" }}>
+        <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
+          {Object.entries(PROJECT_TYPES).map(([key, t]) => (
+            <button key={key} onClick={() => onNew(key)}
+              style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "20px 14px", borderRadius: 16, background: T.surface, border: `1px solid ${T.line}`, cursor: "pointer" }}>
+              <div style={{ width: 36, height: 36, borderRadius: 11, background: t.accent + "18", border: `1px solid ${t.accent}33`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Ic d={ICONS[t.icon]} size={16} color={t.accent} />
+              </div>
+              <span style={{ fontFamily: T.serif, fontSize: 14, color: T.paper, fontWeight: 500 }}>{t.label}</span>
+              <span style={{ fontFamily: T.mono, fontSize: 9, color: T.faint, display: "flex", alignItems: "center", gap: 4 }}>
+                <Ic d={ICONS.plus} size={9} color={T.faint} /> NEW
+              </span>
+            </button>
+          ))}
         </div>
-        <div style={{ color: T.textMuted, fontSize: 10, fontFamily: T.mono, letterSpacing: "0.06em" }}>
-          ADAPTIVE REASONING INTERFACE
+
+        {sorted.length > 0 && (
+          <>
+            <p style={{ fontFamily: T.mono, fontSize: 9, color: T.faint, letterSpacing: "0.1em", marginBottom: 10 }}>
+              {sorted.length} PROJECT{sorted.length !== 1 ? "S" : ""}
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {sorted.map(p => {
+                const typeInfo = PROJECT_TYPES[p.type];
+                const draftedCount = Object.values(p.plan || {}).filter(s => s?.text).length;
+                const totalSections = p.sections?.length || 0;
+                return (
+                  <div key={p.id}
+                    style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 14px", borderRadius: 13, background: T.surface, border: `1px solid ${T.line}` }}>
+                    <button onClick={() => onOpen(p.id)} style={{ flex: 1, display: "flex", alignItems: "center", gap: 12, background: "none", border: "none", cursor: "pointer", textAlign: "left", minWidth: 0 }}>
+                      <div style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0, background: typeInfo.accent + "18", border: `1px solid ${typeInfo.accent}33`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <Ic d={ICONS[typeInfo.icon]} size={13} color={typeInfo.accent} />
+                      </div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <p style={{ color: T.paper, fontSize: 13.5, fontWeight: 500, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.idea}</p>
+                        <p style={{ fontFamily: T.mono, fontSize: 9.5, color: T.faint, margin: "2px 0 0" }}>
+                          {p.presetLabel ? `${p.presetLabel} · ` : ""}{draftedCount}/{totalSections} drafted
+                        </p>
+                      </div>
+                    </button>
+                    <button onClick={() => onToggleBookmark(p.id)}
+                      style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", padding: 4 }}>
+                      <Ic d={ICONS.star} size={15} color={p.bookmarked ? T.insight : T.faint} sw={p.bookmarked ? 0 : 1.6}
+                        style={p.bookmarked ? { fill: T.insight } : undefined} />
+                    </button>
+                    <button onClick={() => onDelete(p.id)}
+                      style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", padding: 4 }}>
+                      <Ic d={ICONS.trash} size={14} color={T.faint} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {sorted.length === 0 && (
+          <div style={{ textAlign: "center", padding: "40px 0", color: T.faint, fontSize: 13, fontFamily: T.sans }}>
+            No projects yet — start a Business Plan or Creative Writing project above.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Creative preset picker ──────────────────────────────────────────────────
+function PresetPicker({ onPick, onBack }) {
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 24px", position: "relative" }}>
+      <button onClick={onBack} style={{ position: "absolute", top: 20, left: 20, display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", color: T.faint, fontSize: 12, cursor: "pointer" }}>
+        <Ic d={ICONS.back} size={13} /> Back
+      </button>
+      <Ic d={ICONS.feather} size={26} color={T.violet} />
+      <h1 style={{ fontFamily: T.serif, fontSize: 24, fontWeight: 500, color: T.paper, margin: "16px 0 24px", textAlign: "center" }}>What form?</h1>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%", maxWidth: 380 }}>
+        {Object.entries(CREATIVE_PRESETS).map(([key, preset]) => (
+          <button key={key} onClick={() => onPick(key)}
+            style={{ padding: "16px 18px", borderRadius: 14, background: T.surface, border: `1px solid ${T.line}`, color: T.paper, fontFamily: T.serif, fontSize: 16, textAlign: "left", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            {preset.label}
+            <Ic d={ICONS.arrow} size={14} color={T.faint} />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Idea intake ──────────────────────────────────────────────────────────────
+function IdeaIntake({ type, presetLabel, onStart, onBack }) {
+  const [idea, setIdea] = useState("");
+  const isCreative = type === "creative";
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 24px", position: "relative" }}>
+      <button onClick={onBack} style={{ position: "absolute", top: 20, left: 20, display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", color: T.faint, fontSize: 12, cursor: "pointer" }}>
+        <Ic d={ICONS.back} size={13} /> Back
+      </button>
+      <Ic d={ICONS[PROJECT_TYPES[type].icon]} size={28} color={PROJECT_TYPES[type].accent} />
+      <h1 style={{ fontFamily: T.serif, fontSize: 26, fontWeight: 500, color: T.paper, margin: "18px 0 8px", textAlign: "center" }}>
+        {isCreative ? `What's the ${presetLabel?.toLowerCase()} about?` : "What are you building?"}
+      </h1>
+      <p style={{ color: T.dim, fontSize: 14, textAlign: "center", maxWidth: 380, lineHeight: 1.6, marginBottom: 28, fontFamily: T.sans }}>
+        {isCreative
+          ? `Describe the premise in a sentence or two. Every section gets drafted from this, with a craft critique on each.`
+          : `Describe the business in a sentence or two. Every section — problem through go-to-market — gets drafted from this, with a critical insight on each one.`}
+      </p>
+      <div style={{ width: "100%", maxWidth: 480 }}>
+        <textarea value={idea} onChange={e => setIdea(e.target.value)}
+          placeholder={isCreative ? "e.g. a lighthouse keeper who starts receiving letters from the future…" : "e.g. a subscription box for rare houseplants, curated by climate zone…"}
+          rows={3}
+          style={{ width: "100%", padding: "14px 16px", borderRadius: 14, fontSize: 14.5, background: T.surface, border: `1px solid ${T.line}`, color: T.paper, outline: "none", fontFamily: T.sans, resize: "none", boxSizing: "border-box" }} />
+        <button onClick={() => idea.trim() && onStart(idea.trim())} disabled={!idea.trim()}
+          style={{ width: "100%", marginTop: 12, padding: "13px 0", borderRadius: 12, background: idea.trim() ? PROJECT_TYPES[type].accent : "rgba(255,255,255,0.04)", border: "none", color: idea.trim() ? T.void : T.faint, fontSize: 14, fontWeight: 700, cursor: idea.trim() ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          Start building <Ic d={ICONS.arrow} size={14} color={idea.trim() ? T.void : T.faint} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Export ─────────────────────────────────────────────────────────────────
+function exportMarkdown(project) {
+  const sections = project.sections;
+  let md = `# ${PROJECT_TYPES[project.type].label}${project.presetLabel ? ` — ${project.presetLabel}` : ""}\n\n**Premise:** ${project.idea}\n\n`;
+  sections.forEach(s => {
+    const data = project.plan[s.id];
+    if (!data?.text) return;
+    md += `## ${s.label}\n\n${data.text}\n\n`;
+    if (data.insight) md += `> **Insight:** ${data.insight}\n\n`;
+  });
+  const blob = new Blob([md], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `${project.type}-${project.id}.md`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Project workspace ────────────────────────────────────────────────────────
+function Workspace({ project, onUpdatePlan, onBack, speech }) {
+  const [openId, setOpenId] = useState(project.sections[0].id);
+  const draftedCount = project.sections.filter(s => project.plan[s.id]?.text).length;
+  const progress = draftedCount / project.sections.length;
+  const accent = PROJECT_TYPES[project.type].accent;
+
+  return (
+    <>
+      <div style={{ flexShrink: 0, height: 2, background: T.line }}>
+        <motion.div animate={{ width: `${progress * 100}%` }} transition={{ duration: 0.4 }} style={{ height: "100%", background: accent }} />
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "20px 20px 60px", scrollbarWidth: "none" }}>
+        <div style={{ maxWidth: 640, margin: "0 auto" }}>
+          <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", color: T.faint, fontSize: 12, cursor: "pointer", marginBottom: 16 }}>
+            <Ic d={ICONS.back} size={13} /> All projects
+          </button>
+          <div style={{ marginBottom: 20, padding: "14px 16px", borderRadius: 12, background: T.surface, border: `1px solid ${T.line}` }}>
+            <p style={{ fontFamily: T.mono, fontSize: 9, color: T.faint, letterSpacing: "0.08em", marginBottom: 5 }}>
+              {project.presetLabel ? project.presetLabel.toUpperCase() : "THE IDEA"}
+            </p>
+            <p style={{ color: T.paper, fontSize: 14, lineHeight: 1.55, margin: 0, fontFamily: T.sans }}>{project.idea}</p>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {project.sections.map(section => (
+              <SectionCard key={section.id} section={section} data={project.plan[section.id]} idea={project.idea} type={project.type}
+                onUpdate={onUpdatePlan} isOpen={openId === section.id} onToggle={() => setOpenId(prev => prev === section.id ? null : section.id)} speech={speech} />
+            ))}
+          </div>
         </div>
       </div>
-      {isStreaming && (
-        <motion.div
-          animate={{ opacity: [0.4, 1, 0.4] }}
-          transition={{ duration: 1.2, repeat: Infinity }}
-          style={{
-            padding: "2px 8px", borderRadius: 8,
-            background: T.accent + "22", border: `1px solid ${T.accent}44`,
-            color: T.accent, fontSize: 10, fontWeight: 600, fontFamily: T.mono,
-          }}
-        >
-          ● STREAMING
-        </motion.div>
-      )}
-    </div>
+    </>
+  );
+}
 
-    {/* Right: stats + controls */}
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      {msgCount > 0 && (
-        <div style={{ fontFamily: T.mono, fontSize: 10, color: T.textMuted }}>
-          {msgCount} msg · {fmtTok(tokens)} tok
-        </div>
-      )}
-      <button onClick={onClear} title="Clear conversation"
-        style={{ background: "transparent", border: "none", cursor: "pointer", color: T.textMuted, padding: 5, borderRadius: 7, transition: "color 0.15s" }}
-        onMouseEnter={(e) => e.currentTarget.style.color = T.text}
-        onMouseLeave={(e) => e.currentTarget.style.color = T.textMuted}>
-        <Ic d="M3 6h18M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6m5-3h4M10 3a1 1 0 00-1 1v1h6V4a1 1 0 00-1-1h-4z" size={15} />
-      </button>
-      <button onClick={onSidebar} title="Prompt library"
-        style={{ background: sidebarOpen ? T.accent + "22" : "transparent", border: sidebarOpen ? `1px solid ${T.accent}44` : "none", cursor: "pointer", color: sidebarOpen ? T.accent : T.textMuted, padding: 5, borderRadius: 7, transition: "all 0.15s" }}
-        onMouseEnter={(e) => { if (!sidebarOpen) e.currentTarget.style.color = T.text; }}
-        onMouseLeave={(e) => { if (!sidebarOpen) e.currentTarget.style.color = T.textMuted; }}>
-        <Ic d="M4 6h16M4 10h16M4 14h10" size={15} />
-      </button>
-    </div>
-  </div>
-);
-
-// ─── Main component ───────────────────────────────────────────────────────────
+// ── Main component ────────────────────────────────────────────────────────────
 const ProjectAI = ({ onClose }) => {
-  const [st, dispatch]   = useReducer(reducer, initialState);
-  const set              = useCallback((p) => dispatch({ type: "SET", payload: p }), []);
-  const messagesEndRef   = useRef(null);
-  const textareaRef      = useRef(null);
-  const abortRef         = useRef(null);
+  const [projects, setProjects] = useState([]);
+  const [view, setView] = useState("library"); // library | picker | intake | workspace
+  const [pendingType, setPendingType] = useState(null);
+  const [pendingPreset, setPendingPreset] = useState(null);
+  const [activeId, setActiveId] = useState(null);
+  const speech = useSpeech();
 
-  // Scroll to bottom on new messages
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [st.messages, st.isStreaming]);
+  useEffect(() => { setProjects(loadProjects()); }, []);
+  useEffect(() => { saveProjects(projects); }, [projects]);
 
-  // Auto-resize textarea
-  useEffect(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = Math.min(ta.scrollHeight, 140) + "px";
-  }, [st.inputValue]);
+  const activeProject = projects.find(p => p.id === activeId);
 
-  // Focus textarea on mount
-  useEffect(() => {
-    setTimeout(() => textareaRef.current?.focus(), 200);
-    set({ sessionId: uid() });
-  }, []);
+  const handleNew = (type) => {
+    setPendingType(type);
+    if (type === "creative") setView("picker");
+    else setView("intake");
+  };
 
-  // Keyboard: Escape closes; Ctrl+L clears
+  const handlePickPreset = (presetKey) => {
+    setPendingPreset(presetKey);
+    setView("intake");
+  };
+
+  const handleStart = (idea) => {
+    const id = uid();
+    const sections = pendingType === "creative" ? CREATIVE_PRESETS[pendingPreset].sections : BUSINESS_SECTIONS;
+    const presetLabel = pendingType === "creative" ? CREATIVE_PRESETS[pendingPreset].label : null;
+    const project = { id, type: pendingType, presetLabel, idea, sections, plan: {}, bookmarked: false, createdAt: Date.now(), updatedAt: Date.now() };
+    setProjects(prev => [...prev, project]);
+    setActiveId(id);
+    setView("workspace");
+  };
+
+  const handleOpen = (id) => { setActiveId(id); setView("workspace"); };
+
+  const handleUpdatePlan = useCallback((sectionId, updater) => {
+    setProjects(prev => prev.map(p => p.id !== activeId ? p : {
+      ...p, updatedAt: Date.now(), plan: { ...p.plan, [sectionId]: updater(p.plan[sectionId] || {}) },
+    }));
+  }, [activeId]);
+
+  const handleToggleBookmark = (id) => {
+    setProjects(prev => prev.map(p => p.id === id ? { ...p, bookmarked: !p.bookmarked } : p));
+  };
+  const handleDelete = (id) => {
+    setProjects(prev => prev.filter(p => p.id !== id));
+    if (activeId === id) { setActiveId(null); setView("library"); }
+  };
+  const backToLibrary = () => { speech.stop(); setActiveId(null); setView("library"); };
+
   useEffect(() => {
-    const h = (e) => {
-      if (e.key === "Escape" && !st.isStreaming) onClose?.();
-      if ((e.ctrlKey || e.metaKey) && e.key === "l") { e.preventDefault(); dispatch({ type: "CLEAR" }); }
-    };
+    const h = (e) => { if (e.key === "Escape") { if (view !== "library") backToLibrary(); else onClose?.(); } };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [st.isStreaming, onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, onClose]);
 
-  // ── Core: send message with real streaming ──────────────────────
-  const sendMessage = useCallback(async (userText) => {
-    const text = (userText ?? st.inputValue).trim();
-    if (!text || st.isStreaming) return;
-
-    set({ inputValue: "", isStreaming: true, showSuggested: false, error: null });
-
-    // Add user message
-    const userMsg = { id: uid(), role: "user", content: text, timestamp: now() };
-    dispatch({ type: "ADD_MSG", payload: userMsg });
-
-    // Add empty assistant message (streaming target)
-    const assistantId = uid();
-    dispatch({
-      type: "ADD_MSG",
-      payload: { id: assistantId, role: "assistant", content: "", timestamp: now() },
-    });
-
-    // Build messages history for API
-    const apiMessages = [
-      ...st.messages
-        .filter((m) => m.role !== "system")
-        .map((m) => ({ role: m.role, content: m.content })),
-      { role: "user", content: text },
-    ];
-
-    try {
-      abortRef.current = new AbortController();
-
-      const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
-      const response = await fetch(`${BASE_URL}/api/v1/ai/chat`, {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        signal:  abortRef.current.signal,
-        body: JSON.stringify({
-          model:      "claude-sonnet-4-6",
-          max_tokens: 1000,
-          system:     SYSTEM_PROMPT,
-          stream:     true,
-          messages:   apiMessages,
-        }),
-      });
-
-      if (!response.ok) {
-        const errBody = await response.json().catch(() => ({}));
-        throw new Error(errBody?.error?.message ?? `HTTP ${response.status}`);
-      }
-
-      // Stream SSE
-      const reader  = response.body.getReader();
-      const decoder = new TextDecoder();
-      let   full    = "";
-      let   inputT  = 0;
-      let   outputT = 0;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6).trim();
-          if (data === "[DONE]") continue;
-
-          try {
-            const evt = JSON.parse(data);
-
-            if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
-              full += evt.delta.text;
-              dispatch({ type: "UPD_LAST", payload: { content: full } });
-            }
-
-            if (evt.type === "message_start" && evt.message?.usage) {
-              inputT = evt.message.usage.input_tokens ?? 0;
-            }
-            if (evt.type === "message_delta" && evt.usage) {
-              outputT = evt.usage.output_tokens ?? 0;
-            }
-          } catch {}
-        }
-      }
-
-      const totalTok = inputT + outputT;
-      dispatch({
-        type: "UPD_LAST",
-        payload: { content: full, tokens: outputT, model: "claude-sonnet-4" },
-      });
-      set({ isStreaming: false, totalTokens: (t) => t + totalTok });
-
-    } catch (err) {
-      if (err.name === "AbortError") {
-        set({ isStreaming: false });
-        return;
-      }
-      console.error("ARIA API error:", err);
-      dispatch({
-        type: "UPD_LAST",
-        payload: {
-          content: `**Connection error** — ${err.message}\n\nPlease check your network connection or try again.`,
-        },
-      });
-      set({ isStreaming: false, error: err.message });
-    }
-  }, [st.inputValue, st.isStreaming, st.messages, set]);
-
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  };
-
-  const stopStreaming = () => {
-    abortRef.current?.abort();
-    set({ isStreaming: false });
-  };
-
-  // Compute total tokens (avoid stale closure)
-  const totalTokens = useMemo(() =>
-    st.messages.filter(m => m.role === "assistant").reduce((s, m) => s + (m.tokens || 0), 0),
-  [st.messages]);
-
-  const canSend = st.inputValue.trim().length > 0 && !st.isStreaming;
+  const headerTitle = view === "library" ? "Founder's Desk"
+    : view === "workspace" && activeProject ? (activeProject.presetLabel || PROJECT_TYPES[activeProject.type].label)
+    : "New Project";
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      style={{
-        position: "fixed",
-        left: 0, right: 0,
-        top: 0,
-        bottom: "var(--taskbar-height, 52px)",
-        zIndex: 50,
-        background: "rgba(0,0,0,0.75)",
-        backdropFilter: "blur(24px)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        paddingTop: "max(12px, env(safe-area-inset-top))",
-        paddingBottom: "max(12px, env(safe-area-inset-bottom))",
-        paddingLeft: 12, paddingRight: 12,
-        fontFamily: T.sans,
-      }}
-      onClick={(e) => { if (e.target === e.currentTarget && !st.isStreaming) onClose?.(); }}
-    >
-      <motion.div
-        initial={{ scale: 0.94, y: 20 }}
-        animate={{ scale: 1, y: 0 }}
-        exit={{ scale: 0.94, y: 20 }}
-        transition={{ type: "spring", damping: 24, stiffness: 280 }}
-        style={{
-          width: "100%", maxWidth: 780,
-          height: "100%", maxHeight: 780,
-          borderRadius: 20,
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "row",
-          background: T.bg,
-          border: `1px solid ${T.border}`,
-          boxShadow: `0 48px 96px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.04), 0 0 80px ${T.accent}18`,
-          position: "relative",
-        }}
-      >
-        {/* ── CLOSE BUTTON ───────────────────────────────────────── */}
-        <button
-          onClick={onClose}
-          style={{
-            position: "absolute", top: 12, right: 12, zIndex: 10,
-            background: "rgba(255,255,255,0.08)", border: "none", cursor: "pointer",
-            width: 30, height: 30, borderRadius: "50%",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            color: T.textDim, transition: "all 0.15s",
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.14)"; e.currentTarget.style.color = T.text; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; e.currentTarget.style.color = T.textDim; }}
-        >
-          <Ic d="M18 6 6 18M6 6l12 12" size={14} sw={2} />
-        </button>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      style={{ position: "fixed", inset: 0, bottom: "var(--taskbar-height, 52px)", zIndex: 50, background: T.void, fontFamily: T.sans, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
-        {/* ══ SIDEBAR — Prompt Library ════════════════════════════ */}
-        <AnimatePresence>
-          {st.sidebarOpen && (
-            <motion.div
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 240, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-              style={{
-                background: "rgba(0,0,0,0.4)",
-                borderRight: `1px solid ${T.border}`,
-                overflowY: "auto",
-                overflowX: "hidden",
-                flexShrink: 0,
-              }}
-            >
-              <div style={{ padding: 16, minWidth: 240 }}>
-                <div style={{ color: T.textMuted, fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", fontFamily: T.mono, marginBottom: 16 }}>
-                  PROMPT LIBRARY
-                </div>
-                {PROMPT_GROUPS.map((group) => (
-                  <div key={group.label} style={{ marginBottom: 20 }}>
-                    <div style={{ color: group.color, fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", marginBottom: 8, fontFamily: T.mono }}>
-                      {group.label.toUpperCase()}
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {group.prompts.map((p) => (
-                        <button
-                          key={p}
-                          onClick={() => { sendMessage(p); set({ sidebarOpen: false }); }}
-                          style={{
-                            background: "transparent", border: `1px solid ${T.border}`,
-                            borderRadius: 8, padding: "7px 10px",
-                            color: T.textDim, fontSize: 11, lineHeight: 1.45,
-                            cursor: "pointer", textAlign: "left",
-                            transition: "all 0.12s",
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.background = group.color + "12"; e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = group.color + "44"; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textDim; e.currentTarget.style.borderColor = T.border; }}
-                        >
-                          {p}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* ══ MAIN CHAT PANEL ════════════════════════════════════ */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
-
-          {/* Status bar */}
-          <StatusBar
-            tokens={totalTokens}
-            msgCount={st.messages.length}
-            isStreaming={st.isStreaming}
-            onClear={() => dispatch({ type: "CLEAR" })}
-            onSidebar={() => set({ sidebarOpen: !st.sidebarOpen })}
-            sidebarOpen={st.sidebarOpen}
-          />
-
-          {/* ── MESSAGE AREA ──────────────────────────────────── */}
-          <div style={{
-            flex: 1, overflowY: "auto", padding: "20px 20px 8px",
-            display: "flex", flexDirection: "column", gap: 16,
-            scrollbarWidth: "thin",
-            scrollbarColor: `${T.border} transparent`,
-          }}>
-
-            {/* Welcome / suggested prompts */}
-            <AnimatePresence>
-              {st.showSuggested && st.messages.length === 0 && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  {/* Hero */}
-                  <div style={{ textAlign: "center", padding: "24px 0 20px" }}>
-                    <motion.div
-                      initial={{ scale: 0.8, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      transition={{ delay: 0.1, type: "spring", stiffness: 200 }}
-                      style={{ display: "inline-flex", marginBottom: 16 }}
-                    >
-                      <ARIAAvatar size={56} />
-                    </motion.div>
-                    <motion.h2
-                      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.18 }}
-                      style={{ color: T.text, fontSize: 22, fontWeight: 800, margin: "0 0 6px", letterSpacing: "-0.02em" }}
-                    >
-                      Hello, I'm ARIA
-                    </motion.h2>
-                    <motion.p
-                      initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                      transition={{ delay: 0.26 }}
-                      style={{ color: T.textDim, fontSize: 13, maxWidth: 420, margin: "0 auto", lineHeight: 1.6 }}
-                    >
-                      The cognitive intelligence layer embedded in this portfolio OS. I understand every module, every API, every architectural decision — and I can explain, demonstrate, or generate anything you need.
-                    </motion.p>
-                  </div>
-
-                  {/* Capability pills */}
-                  <motion.div
-                    initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.34 }}
-                    style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginBottom: 24 }}
-                  >
-                    {[
-                      { label: "System Architecture",  color: T.accent },
-                      { label: "Live Code Generation", color: T.accentG },
-                      { label: "Portfolio Insights",   color: T.accentB },
-                      { label: "Technical Deep-Dives", color: T.accentO },
-                      { label: "Real-time Streaming",  color: T.accentP },
-                    ].map(({ label, color }) => (
-                      <div key={label} style={{
-                        padding: "4px 12px", borderRadius: 20,
-                        background: color + "14", border: `1px solid ${color}2a`,
-                        color: color, fontSize: 11, fontWeight: 600,
-                      }}>
-                        {label}
-                      </div>
-                    ))}
-                  </motion.div>
-
-                  {/* Group tabs */}
-                  <div style={{ display: "flex", gap: 6, marginBottom: 12, overflowX: "auto", scrollbarWidth: "none" }}>
-                    {PROMPT_GROUPS.map((g, i) => (
-                      <button
-                        key={g.label}
-                        onClick={() => set({ activeGroup: i })}
-                        style={{
-                          padding: "5px 14px", borderRadius: 20, flexShrink: 0,
-                          background: st.activeGroup === i ? g.color + "22" : "transparent",
-                          border: `1px solid ${st.activeGroup === i ? g.color + "66" : T.border}`,
-                          color: st.activeGroup === i ? g.color : T.textMuted,
-                          fontSize: 11, fontWeight: 600, cursor: "pointer",
-                          transition: "all 0.15s",
-                        }}
-                      >
-                        {g.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Active group prompts */}
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {PROMPT_GROUPS[st.activeGroup].prompts.map((p) => (
-                      <PromptChip
-                        key={p}
-                        label={p}
-                        color={PROMPT_GROUPS[st.activeGroup].color}
-                        onClick={() => sendMessage(p)}
-                      />
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Messages */}
-            {st.messages.map((msg, i) => (
-              <MessageBubble
-                key={msg.id}
-                msg={msg}
-                fontSize={st.fontSize}
-                isLast={i === st.messages.length - 1}
-                isStreaming={st.isStreaming}
-              />
-            ))}
-
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* ── INPUT AREA ────────────────────────────────────── */}
-          <div style={{
-            padding: "12px 16px 16px",
-            borderTop: `1px solid ${T.border}`,
-            background: "rgba(0,0,0,0.2)",
-            flexShrink: 0,
-          }}>
-            <div style={{
-              display: "flex", alignItems: "flex-end", gap: 10,
-              background: T.surface,
-              border: `1px solid ${st.inputValue ? T.accent + "55" : T.border}`,
-              borderRadius: 16, padding: "10px 14px",
-              transition: "border-color 0.2s",
-            }}>
-              <textarea
-                ref={textareaRef}
-                value={st.inputValue}
-                onChange={(e) => set({ inputValue: e.target.value })}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask ARIA anything about this portfolio OS…"
-                rows={1}
-                style={{
-                  flex: 1, background: "transparent", border: "none", outline: "none",
-                  resize: "none", color: T.text, fontSize: st.fontSize,
-                  lineHeight: 1.55, fontFamily: T.sans,
-                  placeholder: T.textMuted,
-                  maxHeight: 140, overflowY: "auto",
-                  scrollbarWidth: "none",
-                }}
-              />
-
-              {/* Send / Stop */}
-              <motion.button
-                whileTap={{ scale: 0.92 }}
-                onClick={st.isStreaming ? stopStreaming : sendMessage}
-                disabled={!st.isStreaming && !canSend}
-                style={{
-                  width: 34, height: 34, borderRadius: 10, flexShrink: 0,
-                  background: st.isStreaming
-                    ? "#ef4444" + "22"
-                    : canSend ? T.accent : "rgba(255,255,255,0.06)",
-                  border: `1px solid ${st.isStreaming ? "#ef4444" + "55" : canSend ? T.accent + "66" : T.border}`,
-                  cursor: st.isStreaming || canSend ? "pointer" : "default",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  color: st.isStreaming ? "#ef4444" : canSend ? "#fff" : T.textMuted,
-                  transition: "all 0.18s",
-                }}
-              >
-                {st.isStreaming ? (
-                  <motion.div
-                    animate={{ scale: [1, 0.85, 1] }} transition={{ duration: 0.8, repeat: Infinity }}
-                    style={{ width: 10, height: 10, borderRadius: 2, background: "#ef4444" }}
-                  />
-                ) : (
-                  <Ic d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" size={15} sw={2} />
-                )}
-              </motion.button>
-            </div>
-
-            {/* Footer hints */}
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, padding: "0 2px" }}>
-              <span style={{ color: T.textMuted, fontSize: 10, fontFamily: T.mono }}>
-                ↵ send · ⇧↵ newline · ⌘L clear · ESC close
-              </span>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                {/* Font size */}
-                {[12, 14, 16].map((s) => (
-                  <button key={s}
-                    onClick={() => set({ fontSize: s })}
-                    style={{
-                      background: "transparent", border: "none", cursor: "pointer",
-                      color: st.fontSize === s ? T.accent : T.textMuted,
-                      fontSize: 10, fontFamily: T.mono,
-                      transition: "color 0.15s",
-                    }}
-                  >
-                    {s}px
-                  </button>
-                ))}
-                <span style={{ color: T.textMuted, fontSize: 10, fontFamily: T.mono }}>
-                  Powered by _Dascott
-                </span>
-              </div>
-            </div>
-          </div>
+      <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: `1px solid ${T.line}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+          <Ic d={ICONS.spark} size={15} color={T.ember} />
+          <span style={{ fontFamily: T.serif, fontSize: 15, color: T.paper, fontWeight: 500 }}>{headerTitle}</span>
         </div>
-      </motion.div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {view === "workspace" && activeProject && Object.values(activeProject.plan).some(s => s?.text) && (
+            <button onClick={() => exportMarkdown(activeProject)}
+              style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 9, background: T.panel, border: `1px solid ${T.line}`, color: T.dim, fontSize: 12, cursor: "pointer" }}>
+              <Ic d={ICONS.download} size={12} /> Export
+            </button>
+          )}
+          <button onClick={onClose}
+            style={{ width: 32, height: 32, borderRadius: 9, background: T.panel, border: `1px solid ${T.line}`, display: "flex", alignItems: "center", justifyContent: "center", color: T.dim, cursor: "pointer" }}>
+            <Ic d={ICONS.close} size={14} />
+          </button>
+        </div>
+      </div>
+
+      {view === "library" && (
+        <Library projects={projects} onOpen={handleOpen} onNew={handleNew} onToggleBookmark={handleToggleBookmark} onDelete={handleDelete} />
+      )}
+      {view === "picker" && (
+        <PresetPicker onPick={handlePickPreset} onBack={() => setView("library")} />
+      )}
+      {view === "intake" && (
+        <IdeaIntake
+          type={pendingType}
+          presetLabel={pendingType === "creative" ? CREATIVE_PRESETS[pendingPreset]?.label : null}
+          onStart={handleStart}
+          onBack={() => setView(pendingType === "creative" ? "picker" : "library")}
+        />
+      )}
+      {view === "workspace" && activeProject && (
+        <Workspace project={activeProject} onUpdatePlan={handleUpdatePlan} onBack={backToLibrary} speech={speech} />
+      )}
     </motion.div>
   );
 };
