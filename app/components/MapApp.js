@@ -1,433 +1,527 @@
 "use client";
+/**
+ * MapApp.js — "The Kindness Map" (clean layout rebuild)
+ *
+ * Layout: single top bar + right action rail + bottom tray.
+ * Only one tray panel is ever visible at a time — no overlapping UI.
+ * Panels: PLACES (warmth finder), STORY (AI narration), PIN (drop),
+ *         MY PINS (saved notes). Layer toggles live inside the PLACES panel.
+ *
+ * Real data: Nominatim geocoding, Overpass API for public amenities,
+ * /api/v1/ai/chat for AI narration, localStorage for saved pins.
+ */
+
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { IoMdClose, IoMdLocate, IoMdSearch } from "react-icons/io";
-import { FaRegMoon, FaRegSun } from "react-icons/fa";
 import dynamic from "next/dynamic";
 
-// Custom debounce implementation (no lodash dependency)
-function debounce(func, wait) {
-  let timeout;
-  return function(...args) {
-    const context = this;
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func.apply(context, args), wait);
-  };
-}
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+const PINS_KEY = "kindness_map_pins_v1";
 
 const Map = dynamic(() => import("./MapComponent"), {
   ssr: false,
   loading: () => (
-    <div className="flex items-center justify-center h-full">
-      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+    <div style={{ flex: 1, background: "#0d1117", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ width: 32, height: 32, borderRadius: "50%", border: "2px solid #4ade80", borderTopColor: "transparent", animation: "spin 0.9s linear infinite" }} />
     </div>
   ),
 });
 
-const MapApp = ({ mapOpen, setMapOpen }) => {
-  const [darkMode, setDarkMode] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [recentSearches, setRecentSearches] = useState([]);
-  const [showSearchResults, setShowSearchResults] = useState(false);
-  const [searchResults, setSearchResults] = useState([]);
-  const [userLocation, setUserLocation] = useState(null);
-  const [loadingLocation, setLoadingLocation] = useState(false);
-  const [mapReady, setMapReady] = useState(false);
-  const searchInputRef = useRef(null);
-  const searchContainerRef = useRef(null);
+// ── Tokens ──────────────────────────────────────────────────────────────────
+const C = {
+  bg:      "#0B0F14",
+  glass:   "rgba(13,18,26,0.88)",
+  glassHi: "rgba(20,28,40,0.95)",
+  border:  "rgba(255,255,255,0.09)",
+  paper:   "#DDE8D8",
+  muted:   "#6B8060",
+  faint:   "rgba(107,128,96,0.55)",
+  green:   "#4ade80",
+  greenBg: "rgba(74,222,128,0.12)",
+  amber:   "#fbbf24",
+  amberBg: "rgba(251,191,36,0.12)",
+  blue:    "#60a5fa",
+  blueBg:  "rgba(96,165,250,0.12)",
+  rose:    "#fb7185",
+  roseBg:  "rgba(251,113,133,0.12)",
+  sans:    "'Inter', -apple-system, sans-serif",
+  mono:    "'JetBrains Mono', 'SF Mono', monospace",
+  serif:   "'Fraunces', Georgia, serif",
+};
 
-  // Handle window resize
-  useEffect(() => {
-    const handleResize = () => {
-      if (isFullscreen) {
-        document.documentElement.style.overflow = 'hidden';
-      } else {
-        document.documentElement.style.overflow = '';
-      }
-    };
+const WARMTH_LAYERS = [
+  { id: "library",  label: "Libraries",   emoji: "📚", color: C.blue,  bg: C.blueBg,  tag: "amenity=library" },
+  { id: "park",     label: "Parks",       emoji: "🌳", color: C.green, bg: C.greenBg, tag: "leisure=park" },
+  { id: "garden",   label: "Gardens",     emoji: "🌱", color: C.green, bg: C.greenBg, tag: "leisure=garden" },
+  { id: "bench",    label: "Benches",     emoji: "🪑", color: C.amber, bg: C.amberBg, tag: "amenity=bench" },
+  { id: "water",    label: "Free Water",  emoji: "💧", color: C.blue,  bg: C.blueBg,  tag: "amenity=drinking_water" },
+  { id: "shelter",  label: "Shelters",    emoji: "🏠", color: C.rose,  bg: C.roseBg,  tag: "amenity=shelter" },
+];
 
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [isFullscreen]);
+const uid = () => Math.random().toString(36).slice(2, 9);
 
-  // Close search results when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target)) {
-        setShowSearchResults(false);
-      }
-    };
+// ── Persistence ──────────────────────────────────────────────────────────────
+function loadPins() {
+  try { return JSON.parse(localStorage.getItem(PINS_KEY) || "[]"); } catch { return []; }
+}
+function savePins(pins) {
+  try { localStorage.setItem(PINS_KEY, JSON.stringify(pins)); } catch {}
+}
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+// ── Real API calls ────────────────────────────────────────────────────────────
+async function geocode(q) {
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=6`, { headers: { "Accept-Language": "en" } });
+    return await r.json();
+  } catch { return []; }
+}
 
-  const handleLocateMe = useCallback(() => {
-    setLoadingLocation(true);
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setUserLocation({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-            accuracy: position.coords.accuracy
-          });
-          setLoadingLocation(false);
-        },
-        (error) => {
-          console.error("Error getting location:", error);
-          setLoadingLocation(false);
-        },
-        { enableHighAccuracy: true, timeout: 10000 }
-      );
-    } else {
-      console.error("Geolocation is not supported by this browser.");
-      setLoadingLocation(false);
+async function reverseGeocode(lat, lng) {
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, { headers: { "Accept-Language": "en" } });
+    return await r.json();
+  } catch { return null; }
+}
+
+async function fetchPlaces(lat, lng, tags) {
+  if (!tags.length) return [];
+  const q = tags.map(t => { const [k, v] = t.split("="); return `node["${k}"="${v}"](around:800,${lat},${lng});`; }).join("\n");
+  try {
+    const r = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: `data=${encodeURIComponent(`[out:json][timeout:10];\n(\n${q}\n);\nout body;`)}` });
+    return (await r.json()).elements || [];
+  } catch { return []; }
+}
+
+async function streamStory(lat, lng, placeName, nearbyNames, onChunk, signal) {
+  const system = `You are the voice of a kind, warm map. Write 2–3 short paragraphs about being at this location. Mention something specific and true about the area — a small history, a quality, something comforting. Then note what public, free, welcoming things are nearby from the list provided. End with one gentle sentence that makes the person feel the place is worth being in. Never use "vibrant", "bustling", or tourist-brochure language. Speak like a kind friend who knows the neighborhood.`;
+  const content = `Location: ${placeName || `${lat.toFixed(4)}, ${lng.toFixed(4)}`}. Nearby public spaces: ${nearbyNames.slice(0, 6).join(", ") || "none found"}.`;
+  const res = await fetch(`${API_URL}/api/v1/ai/chat`, {
+    method: "POST", signal,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ system, messages: [{ role: "user", content }], max_tokens: 350 }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split("\n"); buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const d = line.slice(6).trim();
+      if (d === "[DONE]") return;
+      try { const ev = JSON.parse(d); if (ev.type === "content_block_delta") onChunk(ev.delta?.text || ""); } catch {}
     }
-  }, []);
+  }
+}
 
-  const debouncedSearch = useCallback(
-    debounce((query) => {
-      if (query.trim()) {
-        setTimeout(() => {
-          setSearchResults([
-            { id: 1, name: `${query} (City Center)`, type: 'city' },
-            { id: 2, name: `${query} Main Station`, type: 'station' },
-            { id: 3, name: `${query} Central Park`, type: 'park' },
-          ]);
-          setShowSearchResults(true);
-        }, 300);
-      } else {
-        setSearchResults([]);
-        setShowSearchResults(false);
-      }
-    }, 300),
-    []
+// ── Primitives ────────────────────────────────────────────────────────────────
+const Spinner = () => (
+  <div style={{ width: 16, height: 16, borderRadius: "50%", border: `2px solid ${C.green}`, borderTopColor: "transparent", animation: "spin 0.8s linear infinite" }} />
+);
+
+const IconBtn = ({ onClick, children, active, activeColor = C.green, title, badge, disabled }) => (
+  <motion.button whileTap={{ scale: 0.88 }} onClick={onClick} title={title} disabled={disabled}
+    style={{
+      width: 44, height: 44, borderRadius: 14, flexShrink: 0,
+      background: active ? (activeColor + "22") : C.glass,
+      border: `1px solid ${active ? activeColor + "55" : C.border}`,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      cursor: disabled ? "not-allowed" : "pointer",
+      backdropFilter: "blur(16px)", position: "relative",
+      opacity: disabled ? 0.5 : 1, transition: "all 0.15s",
+      boxShadow: active ? `0 0 12px ${activeColor}33` : "0 2px 8px rgba(0,0,0,0.3)",
+    }}>
+    <span style={{ fontSize: 18, lineHeight: 1 }}>{children}</span>
+    {badge > 0 && (
+      <div style={{ position: "absolute", top: 5, right: 5, width: 14, height: 14, borderRadius: "50%", background: C.amber, fontSize: 8, fontWeight: 800, color: "#000", fontFamily: C.mono, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {badge}
+      </div>
+    )}
+  </motion.button>
+);
+
+// ── Bottom tray — the single panel zone ──────────────────────────────────────
+const TRAY_HEIGHTS = { places: 320, story: 280, pin: 160, mypins: 300 };
+
+function Tray({ panel, onClose, children }) {
+  const h = TRAY_HEIGHTS[panel] || 280;
+  return (
+    <motion.div
+      key={panel}
+      initial={{ y: h + 20, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      exit={{ y: h + 20, opacity: 0 }}
+      transition={{ type: "spring", damping: 30, stiffness: 320 }}
+      style={{
+        position: "absolute", bottom: 0, left: 0, right: 0,
+        height: h, zIndex: 20,
+        background: C.glassHi, backdropFilter: "blur(28px)",
+        borderTop: `1px solid ${C.border}`,
+        borderRadius: "20px 20px 0 0",
+        display: "flex", flexDirection: "column",
+        boxShadow: "0 -16px 48px rgba(0,0,0,0.5)",
+      }}>
+      {/* Drag handle */}
+      <div style={{ display: "flex", justifyContent: "center", padding: "10px 0 4px" }}>
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: C.border }} />
+      </div>
+      {/* Close row */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 18px 10px" }}>
+        {children.header}
+        <button onClick={onClose} style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", fontSize: 20, lineHeight: 1, padding: "0 4px" }}>×</button>
+      </div>
+      {/* Body */}
+      <div style={{ flex: 1, overflowY: "auto", scrollbarWidth: "none", padding: "0 18px 18px" }}>
+        {children.body}
+      </div>
+    </motion.div>
   );
+}
 
-  const handleSearchChange = (e) => {
-    const query = e.target.value;
-    setSearchQuery(query);
-    debouncedSearch(query);
-  };
+// ── Places panel content ─────────────────────────────────────────────────────
+function PlacesContent({ activeLayers, onToggleLayer, places, loading }) {
+  const visiblePlaces = places.filter(p =>
+    WARMTH_LAYERS.some(l => activeLayers.includes(l.id) && p.tags?.[l.tag.split("=")[0]] === l.tag.split("=")[1])
+  );
+  return (
+    <>
+      {/* Layer chips */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 14 }}>
+        {WARMTH_LAYERS.map(l => {
+          const on = activeLayers.includes(l.id);
+          return (
+            <motion.button key={l.id} whileTap={{ scale: 0.93 }} onClick={() => onToggleLayer(l.id)}
+              style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 11px", borderRadius: 20, fontSize: 12, fontWeight: 600, fontFamily: C.sans, cursor: "pointer", transition: "all 0.15s", background: on ? l.bg : "rgba(255,255,255,0.04)", border: `1px solid ${on ? l.color + "44" : C.border}`, color: on ? l.color : C.faint }}>
+              {l.emoji} {l.label}
+            </motion.button>
+          );
+        })}
+      </div>
+      {/* Results */}
+      {loading ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 0", color: C.faint, fontSize: 13 }}>
+          <Spinner /> Searching nearby…
+        </div>
+      ) : visiblePlaces.length === 0 ? (
+        <p style={{ color: C.faint, fontSize: 13, fontFamily: C.sans, lineHeight: 1.6 }}>
+          No places found within 800m. Try enabling more layers or search for a different location.
+        </p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {visiblePlaces.slice(0, 12).map((p, i) => {
+            const layer = WARMTH_LAYERS.find(l => p.tags?.[l.tag.split("=")[0]] === l.tag.split("=")[1]);
+            return (
+              <div key={p.id || i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 12px", borderRadius: 12, background: "rgba(255,255,255,0.03)", border: `1px solid ${C.border}` }}>
+                <span style={{ fontSize: 18, flexShrink: 0 }}>{layer?.emoji || "📍"}</span>
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ color: C.paper, fontSize: 13, fontWeight: 500, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {p.tags?.name || layer?.label || "Public space"}
+                  </p>
+                  {p.tags?.["addr:street"] && (
+                    <p style={{ color: C.faint, fontSize: 10, margin: "1px 0 0", fontFamily: C.mono }}>{p.tags["addr:street"]}</p>
+                  )}
+                </div>
+                <div style={{ marginLeft: "auto", flexShrink: 0, width: 6, height: 6, borderRadius: "50%", background: layer?.color || C.green }} />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
 
-  const handleSearch = (e) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      setRecentSearches((prev) => {
-        const newSearches = [searchQuery, ...prev.filter(item => item !== searchQuery)].slice(0, 5);
-        return newSearches;
-      });
-      setShowSearchResults(false);
-      searchInputRef.current.blur();
-    }
-  };
+// ── Story panel content ───────────────────────────────────────────────────────
+function StoryContent({ story, loading }) {
+  return loading && !story ? (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", color: C.faint, fontSize: 13, fontFamily: C.mono }}>
+      <Spinner />
+      <motion.span animate={{ opacity: [0.4, 1, 0.4] }} transition={{ duration: 1.4, repeat: Infinity }}>
+        reading the neighborhood…
+      </motion.span>
+    </div>
+  ) : (
+    <p style={{ color: C.paper, fontSize: 14, lineHeight: 1.8, margin: 0, fontFamily: C.sans, whiteSpace: "pre-wrap" }}>
+      {story || "Tap ✨ after locating yourself to hear something kind about where you are."}
+    </p>
+  );
+}
 
-  const toggleFullscreen = useCallback(() => {
-    if (!isFullscreen) {
-      document.documentElement.requestFullscreen?.().catch(err => {
-        console.error(`Error attempting to enable fullscreen: ${err.message}`);
-      });
-    } else {
-      document.exitFullscreen?.();
-    }
-    setIsFullscreen(!isFullscreen);
-  }, [isFullscreen]);
+// ── Pin drop content ──────────────────────────────────────────────────────────
+function PinDropContent({ onDrop }) {
+  const [note, setNote] = useState("");
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <input value={note} onChange={e => setNote(e.target.value)}
+        onKeyDown={e => e.key === "Enter" && note.trim() && onDrop(note)}
+        placeholder='e.g. "free coffee here Tuesdays" or "bench faces the sunrise"'
+        autoFocus
+        style={{ padding: "12px 14px", borderRadius: 12, fontSize: 14, background: "rgba(255,255,255,0.05)", border: `1px solid ${C.border}`, color: C.paper, outline: "none", fontFamily: C.sans }} />
+      <motion.button whileTap={{ scale: 0.97 }}
+        onClick={() => note.trim() && onDrop(note)}
+        disabled={!note.trim()}
+        style={{ padding: "12px", borderRadius: 12, background: note.trim() ? C.amberBg : "rgba(255,255,255,0.04)", border: `1px solid ${note.trim() ? C.amber + "44" : C.border}`, color: note.trim() ? C.amber : C.faint, fontWeight: 700, fontSize: 14, cursor: note.trim() ? "pointer" : "default", fontFamily: C.sans }}>
+        Drop kindness pin 📍
+      </motion.button>
+    </div>
+  );
+}
 
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
+// ── My pins content ───────────────────────────────────────────────────────────
+function MyPinsContent({ pins, onDelete }) {
+  if (pins.length === 0) return (
+    <p style={{ color: C.faint, fontSize: 13, fontFamily: C.sans, lineHeight: 1.6 }}>
+      No kindness pins yet. Locate yourself and tap 🫶 to drop a note at your current spot.
+    </p>
+  );
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+      {[...pins].reverse().map(pin => (
+        <div key={pin.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", borderRadius: 12, background: "rgba(255,255,255,0.03)", border: `1px solid ${C.border}` }}>
+          <span style={{ fontSize: 16, flexShrink: 0 }}>📍</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ color: C.paper, fontSize: 13, margin: 0, lineHeight: 1.5 }}>{pin.note}</p>
+            <p style={{ color: C.faint, fontSize: 10, margin: "3px 0 0", fontFamily: C.mono }}>{pin.lat?.toFixed(4)}, {pin.lng?.toFixed(4)}</p>
+          </div>
+          <button onClick={() => onDelete(pin.id)} style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", fontSize: 16, padding: "0 2px", lineHeight: 1, flexShrink: 0 }}>×</button>
+        </div>
+      ))}
+    </div>
+  );
+}
 
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+// ── Main ──────────────────────────────────────────────────────────────────────
+const MapApp = ({ mapOpen, setMapOpen }) => {
+  const [userLoc,     setUserLoc]     = useState(null);
+  const [locating,    setLocating]    = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchRes,   setSearchRes]   = useState([]);
+  const [showDrop,    setShowDrop]    = useState(false);
+  const [activeLayers,setActiveLayers]= useState(["library", "park"]);
+  const [places,      setPlaces]      = useState([]);
+  const [placesLoading,setPlacesLoading] = useState(false);
+  const [story,       setStory]       = useState("");
+  const [storyLoading,setStoryLoading]= useState(false);
+  const [tray,        setTray]        = useState(null); // null | "places" | "story" | "pin" | "mypins"
+  const [pins,        setPins]        = useState([]);
+  const abortRef  = useRef(null);
+  const searchRef = useRef(null);
+  const debounceRef = useRef(null);
+
+  useEffect(() => { setPins(loadPins()); }, []);
+  useEffect(() => { savePins(pins); }, [pins]);
+
+  const openTray = (name) => setTray(prev => prev === name ? null : name);
+  const closeTray = () => setTray(null);
+
+  // ── Locate ──────────────────────────────────────────────────────────────────
+  const locate = useCallback(() => {
+    if (!navigator.geolocation) return;
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      pos => { setUserLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setLocating(false); },
+      ()  => setLocating(false),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
   }, []);
 
-  const handleClose = useCallback(() => {
-    setMapOpen(false);
-    setIsFullscreen(false);
-  }, [setMapOpen]);
+  // ── Search ──────────────────────────────────────────────────────────────────
+  const handleSearchInput = (val) => {
+    setSearchQuery(val);
+    clearTimeout(debounceRef.current);
+    if (!val.trim()) { setSearchRes([]); setShowDrop(false); return; }
+    debounceRef.current = setTimeout(async () => {
+      const res = await geocode(val);
+      setSearchRes(res); setShowDrop(true);
+    }, 400);
+  };
 
-  const handleMapReady = useCallback(() => {
-    setMapReady(true);
+  const handleSelectResult = (r) => {
+    setUserLoc({ lat: parseFloat(r.lat), lng: parseFloat(r.lon) });
+    setSearchQuery(r.display_name.split(",")[0]);
+    setSearchRes([]); setShowDrop(false);
+  };
+
+  // ── Places ──────────────────────────────────────────────────────────────────
+  const loadPlaces = useCallback(async (lat, lng, layers) => {
+    setPlacesLoading(true);
+    const tags = WARMTH_LAYERS.filter(l => layers.includes(l.id)).map(l => l.tag);
+    const res = await fetchPlaces(lat, lng, tags);
+    setPlaces(res); setPlacesLoading(false);
   }, []);
+
+  const handleOpenPlaces = () => {
+    openTray("places");
+    if (userLoc) loadPlaces(userLoc.lat, userLoc.lng, activeLayers);
+    else locate();
+  };
+
+  const handleToggleLayer = (id) => {
+    const next = activeLayers.includes(id) ? activeLayers.filter(l => l !== id) : [...activeLayers, id];
+    setActiveLayers(next);
+    if (userLoc) loadPlaces(userLoc.lat, userLoc.lng, next);
+  };
+
+  // ── Story ───────────────────────────────────────────────────────────────────
+  const handleOpenStory = async () => {
+    if (!userLoc) { locate(); return; }
+    openTray("story");
+    setStory(""); setStoryLoading(true);
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
+    try {
+      const place = await reverseGeocode(userLoc.lat, userLoc.lng);
+      const placeName = place?.display_name?.split(",").slice(0, 2).join(", ") || "";
+      const nearbyNames = places.map(p => p.tags?.name).filter(Boolean);
+      await streamStory(userLoc.lat, userLoc.lng, placeName, nearbyNames,
+        chunk => setStory(prev => prev + chunk),
+        abortRef.current.signal
+      );
+    } catch (e) {
+      if (e.name !== "AbortError") setStory("Couldn't reach the AI — check the backend is running.");
+    } finally { setStoryLoading(false); }
+  };
+
+  // ── Pins ────────────────────────────────────────────────────────────────────
+  const dropPin = (note) => {
+    if (!userLoc) return;
+    setPins(prev => [...prev, { id: uid(), note, lat: userLoc.lat, lng: userLoc.lng, ts: Date.now() }]);
+    closeTray();
+  };
 
   if (!mapOpen) return null;
 
+  const TRAY_LABELS = {
+    places: { emoji: "🌿", text: "Good places nearby" },
+    story:  { emoji: "✨", text: "What's good here" },
+    pin:    { emoji: "🫶", text: "Drop a kindness pin" },
+    mypins: { emoji: "📋", text: `My pins (${pins.length})` },
+  };
+
   return (
-    <AnimatePresence>
+    <>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
+        initial={{ opacity: 0, scale: 0.98 }}
         animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        transition={{ type: "spring", damping: 25, stiffness: 300 }}
-        className={`safe-overlay-backdrop ${isFullscreen ? '!p-0' : 'p-4 sm:p-6'} ${darkMode ? 'dark' : ''}`}
-        style={{ zIndex: 100, bottom: "var(--taskbar-height, 52px)" }}
+        exit={{ opacity: 0, scale: 0.98 }}
+        transition={{ type: "spring", damping: 28, stiffness: 280 }}
+        style={{
+          position: "fixed", inset: 0, bottom: "var(--taskbar-height, 52px)",
+          zIndex: 100, background: C.bg, fontFamily: C.sans,
+          display: "flex", flexDirection: "column", overflow: "hidden",
+        }}
       >
-        <div className={`absolute inset-0 rounded-xl overflow-hidden flex flex-col ${
-          darkMode ? 'bg-gray-900/90' : 'bg-white/90'
-        } backdrop-blur-lg border ${
-          darkMode ? 'border-gray-700/50' : 'border-gray-200/50'
-        } shadow-2xl`}>
-          
-          {/* Close Button - Adjusted with better spacing */}
-          <button
-            onClick={handleClose}
-            className={`absolute top-4 right-4 z-50 p-3 rounded-full ${
-              darkMode ? 'bg-gray-800/90 hover:bg-gray-700/90' : 'bg-white/90 hover:bg-gray-200/90'
-            } backdrop-blur-md shadow-lg border ${
-              darkMode ? 'border-gray-700/30' : 'border-gray-200/30'
-            } transition-colors`}
-            style={{
-              width: '44px',
-              height: '44px',
-              margin: '12px' // Added margin for better spacing
-              
-            }}
-          >
-            <IoMdClose className={`text-xl ${darkMode ? 'text-gray-300' : 'text-gray-700'}`} />
-          </button>
 
-          <div className="flex-1 relative overflow-hidden">
-            <Map
-              darkMode={darkMode}
-              userLocation={userLocation}
-              searchQuery={searchQuery}
-              onMapReady={handleMapReady}
-            />
-
-            {/* Rest of your existing code remains exactly the same */}
-            <div className="absolute top-4 left-0 right-0 flex justify-center px-4 pointer-events-none">
-              <div className={`flex items-center justify-between w-full max-w-4xl ${
-                darkMode ? 'bg-gray-800/80' : 'bg-white/80'
-              } backdrop-blur-md rounded-full p-1 shadow-lg border ${
-                darkMode ? 'border-gray-700/30' : 'border-gray-200/30'
-              } pointer-events-auto`}>
-                <div ref={searchContainerRef} className="relative flex-1">
-                  <form onSubmit={handleSearch} className="flex">
-                    <button
-                      type="submit"
-                      className={`p-2 rounded-full ${
-                        darkMode ? 'text-gray-300 hover:bg-gray-700/50' : 'text-gray-600 hover:bg-gray-200/50'
-                      }`}
-                    >
-                      <IoMdSearch className="text-xl" />
-                    </button>
-                    <input
-                      ref={searchInputRef}
-                      type="text"
-                      value={searchQuery}
-                      onChange={handleSearchChange}
-                      onFocus={() => searchQuery && setShowSearchResults(true)}
-                      placeholder="Search for places or addresses"
-                      className="flex-1 py-2 px-1 focus:outline-none border-none shadow-none"
-                      style={{
-                        background: 'transparent',
-                        color: darkMode ? '#f1f5f9' : '#1e293b',
-                        caretColor: darkMode ? '#f1f5f9' : '#1e293b',
-                      }}
-                    />
-                    {searchQuery && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSearchQuery('');
-                          setShowSearchResults(false);
-                        }}
-                        className={`p-2 rounded-full ${
-                          darkMode ? 'text-gray-400 hover:bg-gray-700/50' : 'text-gray-500 hover:bg-gray-200/50'
-                        }`}
-                      >
-                        <IoMdClose />
-                      </button>
-                    )}
-                  </form>
-
-                  <AnimatePresence>
-                    {showSearchResults && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        transition={{ duration: 0.2 }}
-                        className={`absolute left-0 right-0 mt-1 rounded-xl shadow-xl overflow-hidden ${
-                          darkMode ? 'bg-gray-800/90' : 'bg-white/90'
-                        } backdrop-blur-lg border ${
-                          darkMode ? 'border-gray-700/30' : 'border-gray-200/30'
-                        }`}
-                      >
-                        {searchResults.length > 0 ? (
-                          <ul className="divide-y divide-gray-200/20">
-                            {searchResults.map((result) => (
-                              <li
-                                key={result.id}
-                                className={`p-3 cursor-pointer flex items-center ${
-                                  darkMode
-                                    ? 'hover:bg-gray-700/50 text-gray-200'
-                                    : 'hover:bg-gray-100/50 text-gray-800'
-                                } transition-colors`}
-                                onClick={() => {
-                                  setSearchQuery(result.name);
-                                  setShowSearchResults(false);
-                                }}
-                              >
-                                <div className="flex items-center">
-                                  <div className={`p-2 rounded-full mr-3 ${
-                                    darkMode ? 'bg-gray-700/50' : 'bg-gray-100/50'
-                                  }`}>
-                                    <IoMdLocate className={
-                                      result.type === 'city' ? 'text-blue-500' : 
-                                      result.type === 'station' ? 'text-purple-500' : 
-                                      'text-green-500'
-                                    } />
-                                  </div>
-                                  <div>
-                                    <p className="font-medium">{result.name}</p>
-                                    <p className={`text-sm ${
-                                      darkMode ? 'text-gray-400' : 'text-gray-500'
-                                    }`}>
-                                      {result.type.charAt(0).toUpperCase() + result.type.slice(1)}
-                                    </p>
-                                  </div>
-                                </div>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <div className={`p-4 text-center ${
-                            darkMode ? 'text-gray-400' : 'text-gray-500'
-                          }`}>
-                            No results found
-                          </div>
-                        )}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-
-                <button
-                  onClick={() => setDarkMode(!darkMode)}
-                  className={`p-2 mx-1 rounded-full ${
-                    darkMode ? 'hover:bg-gray-700/50' : 'hover:bg-gray-200/50'
-                  } transition-colors`}
-                >
-                  {darkMode ? (
-                    <FaRegSun className="text-yellow-300 text-xl" />
-                  ) : (
-                    <FaRegMoon className="text-gray-600 text-xl" />
-                  )}
-                </button>
-              </div>
+        {/* ── TOP BAR ──────────────────────────────────────────────────────── */}
+        <div style={{
+          flexShrink: 0, height: 56, display: "flex", alignItems: "center",
+          padding: "0 12px", gap: 8, background: C.glass,
+          backdropFilter: "blur(24px)", borderBottom: `1px solid ${C.border}`, zIndex: 30,
+        }}>
+          {/* Search input */}
+          <div style={{ flex: 1, position: "relative" }}>
+            <div style={{ display: "flex", alignItems: "center", background: "rgba(255,255,255,0.05)", border: `1px solid ${C.border}`, borderRadius: 12, padding: "0 12px", gap: 8 }}>
+              <span style={{ color: C.faint, fontSize: 14, flexShrink: 0 }}>🔍</span>
+              <input
+                value={searchQuery}
+                onChange={e => handleSearchInput(e.target.value)}
+                onFocus={() => searchRes.length && setShowDrop(true)}
+                onBlur={() => setTimeout(() => setShowDrop(false), 150)}
+                placeholder="Search any place…"
+                style={{ flex: 1, padding: "9px 0", background: "none", border: "none", outline: "none", color: C.paper, fontSize: 14, fontFamily: C.sans, caretColor: C.green }}
+              />
+              {searchQuery && (
+                <button onClick={() => { setSearchQuery(""); setSearchRes([]); setShowDrop(false); }}
+                  style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", fontSize: 16, flexShrink: 0 }}>×</button>
+              )}
             </div>
-
-            <div className="absolute bottom-4 right-4 flex flex-col space-y-3">
-              <div className={`flex flex-col rounded-xl overflow-hidden ${
-                darkMode ? 'bg-gray-800/80' : 'bg-white/80'
-              } backdrop-blur-md shadow-lg border ${
-                darkMode ? 'border-gray-700/30' : 'border-gray-200/30'
-              }`}>
-                <button
-                  className={`p-3 ${
-                    darkMode ? 'hover:bg-gray-700/50' : 'hover:bg-gray-200/50'
-                  } transition-colors`}
-                >
-                  <span className={`text-xl ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>+</span>
-                </button>
-                <div className={`h-px ${darkMode ? 'bg-gray-700/50' : 'bg-gray-200/50'}`} />
-                <button
-                  className={`p-3 ${
-                    darkMode ? 'hover:bg-gray-700/50' : 'hover:bg-gray-200/50'
-                  } transition-colors`}
-                >
-                  <span className={`text-xl ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>−</span>
-                </button>
-              </div>
-
-              <button
-                onClick={handleLocateMe}
-                disabled={loadingLocation}
-                className={`p-3 rounded-xl ${
-                  darkMode ? 'bg-gray-800/80 hover:bg-gray-700/80' : 'bg-white/80 hover:bg-gray-200/80'
-                } backdrop-blur-md shadow-lg border ${
-                  darkMode ? 'border-gray-700/30' : 'border-gray-200/30'
-                } transition-colors flex items-center justify-center`}
-              >
-                {loadingLocation ? (
-                  <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-blue-500" />
-                ) : (
-                  <IoMdLocate className={`text-xl ${
-                    darkMode ? 'text-blue-400' : 'text-blue-600'
-                  }`} />
-                )}
-              </button>
-
-              <button
-                onClick={toggleFullscreen}
-                className={`p-3 rounded-xl ${
-                  darkMode ? 'bg-gray-800/80 hover:bg-gray-700/80' : 'bg-white/80 hover:bg-gray-200/80'
-                } backdrop-blur-md shadow-lg border ${
-                  darkMode ? 'border-gray-700/30' : 'border-gray-200/30'
-                } transition-colors`}
-              >
-                {isFullscreen ? (
-                  <svg className={`w-5 h-5 mx-auto ${darkMode ? 'text-gray-300' : 'text-gray-700'}`} fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M3 7a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 6a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
-                  </svg>
-                ) : (
-                  <svg className={`w-5 h-5 mx-auto ${darkMode ? 'text-gray-300' : 'text-gray-700'}`} fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M3 4a1 1 0 011-1h4a1 1 0 010 2H6.414l2.293 2.293a1 1 0 01-1.414 1.414L5 6.414V8a1 1 0 01-2 0V4zm9 1a1 1 0 010-2h4a1 1 0 011 1v4a1 1 0 01-2 0V6.414l-2.293 2.293a1 1 0 11-1.414-1.414L13.586 5H12zm-9 7a1 1 0 012 0v1.586l2.293-2.293a1 1 0 111.414 1.414L6.414 15H8a1 1 0 010 2H4a1 1 0 01-1-1v-4zm13-1a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 010-2h1.586l-2.293-2.293a1 1 0 111.414-1.414L15 13.586V12a1 1 0 011-1z" clipRule="evenodd" />
-                  </svg>
-                )}
-              </button>
-            </div>
-
+            {/* Dropdown */}
             <AnimatePresence>
-              {recentSearches.length > 0 && !searchQuery && (
+              {showDrop && searchRes.length > 0 && (
                 <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 20 }}
-                  className={`absolute bottom-20 left-4 w-80 rounded-xl ${
-                    darkMode ? 'bg-gray-800/80' : 'bg-white/80'
-                  } backdrop-blur-md shadow-lg border ${
-                    darkMode ? 'border-gray-700/30' : 'border-gray-200/30'
-                  } p-4`}
-                >
-                  <h3 className={`font-medium mb-3 ${
-                    darkMode ? 'text-gray-300' : 'text-gray-700'
-                  }`}>
-                    Recent Searches
-                  </h3>
-                  <ul className="space-y-2">
-                    {recentSearches.map((search, index) => (
-                      <motion.li
-                        key={index}
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: index * 0.05 }}
-                        className={`px-3 py-2 rounded-lg cursor-pointer flex items-center ${
-                          darkMode
-                            ? 'hover:bg-gray-700/50 text-gray-200'
-                            : 'hover:bg-gray-200/50 text-gray-800'
-                        } transition-colors`}
-                        onClick={() => {
-                          setSearchQuery(search);
-                          searchInputRef.current.focus();
-                        }}
-                      >
-                        <IoMdSearch className="mr-2 opacity-70" />
-                        <span className="truncate">{search}</span>
-                      </motion.li>
-                    ))}
-                  </ul>
+                  initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
+                  style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 50, background: C.glassHi, backdropFilter: "blur(20px)", border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden", boxShadow: "0 16px 40px rgba(0,0,0,0.6)" }}>
+                  {searchRes.slice(0, 5).map((r, i) => (
+                    <button key={i} onMouseDown={() => handleSelectResult(r)}
+                      style={{ width: "100%", padding: "11px 14px", background: "none", border: "none", textAlign: "left", color: C.paper, fontSize: 13, cursor: "pointer", borderBottom: i < 4 ? `1px solid rgba(255,255,255,0.04)` : "none", display: "block", fontFamily: C.sans }}>
+                      <span style={{ opacity: 0.4, marginRight: 6 }}>📍</span>
+                      {r.display_name.split(",").slice(0, 3).join(", ")}
+                    </button>
+                  ))}
                 </motion.div>
               )}
             </AnimatePresence>
           </div>
+
+          {/* Locate me */}
+          <IconBtn onClick={locate} disabled={locating} title="Find my location">
+            {locating ? <Spinner /> : "📍"}
+          </IconBtn>
+
+          {/* Close */}
+          <motion.button whileTap={{ scale: 0.9 }} onClick={() => setMapOpen(false)}
+            style={{ width: 44, height: 44, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.muted, fontSize: 18, flexShrink: 0 }}>
+            ×
+          </motion.button>
+        </div>
+
+        {/* ── MAP + OVERLAYS ────────────────────────────────────────────────── */}
+        <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+          <Map darkMode={true} userLocation={userLoc} searchQuery={searchQuery} onMapReady={() => {}} />
+
+          {/* Right action rail */}
+          <div style={{
+            position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
+            display: "flex", flexDirection: "column", gap: 8, zIndex: 20,
+          }}>
+            <IconBtn onClick={handleOpenPlaces} active={tray === "places"} activeColor={C.green} title="Find good places nearby">🌿</IconBtn>
+            <IconBtn onClick={handleOpenStory}  active={tray === "story"}  activeColor={C.green} title="What's good here">✨</IconBtn>
+            <IconBtn onClick={() => { if (!userLoc) locate(); openTray("pin"); }} active={tray === "pin"} activeColor={C.amber} title="Drop a kindness pin">🫶</IconBtn>
+            <IconBtn onClick={() => openTray("mypins")} active={tray === "mypins"} activeColor={C.amber} title="My kindness pins" badge={pins.length}>📋</IconBtn>
+          </div>
+
+          {/* Wordmark badge */}
+          <div style={{ position: "absolute", bottom: tray ? TRAY_HEIGHTS[tray] + 12 : 16, left: 12, zIndex: 20, pointerEvents: "none", transition: "bottom 0.35s cubic-bezier(0.16,1,0.3,1)" }}>
+            <div style={{ background: C.glass, backdropFilter: "blur(12px)", border: `1px solid ${C.border}`, borderRadius: 10, padding: "7px 11px" }}>
+              <p style={{ fontFamily: C.mono, fontSize: 9, color: C.green, letterSpacing: "0.1em", margin: 0 }}>KINDNESS MAP</p>
+              <p style={{ fontFamily: C.sans, fontSize: 10, color: C.faint, margin: "1px 0 0" }}>🌿 places · ✨ story · 🫶 pin</p>
+            </div>
+          </div>
+
+          {/* Bottom tray — one panel at a time */}
+          <AnimatePresence>
+            {tray && (
+              <Tray panel={tray} onClose={closeTray}>
+                {{
+                  header: (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 16 }}>{TRAY_LABELS[tray]?.emoji}</span>
+                      <span style={{ fontFamily: C.mono, fontSize: 10, color: C.green, letterSpacing: "0.08em" }}>
+                        {TRAY_LABELS[tray]?.text?.toUpperCase()}
+                      </span>
+                    </div>
+                  ),
+                  body: tray === "places" ? (
+                    <PlacesContent activeLayers={activeLayers} onToggleLayer={handleToggleLayer} places={places} loading={placesLoading} />
+                  ) : tray === "story" ? (
+                    <StoryContent story={story} loading={storyLoading} />
+                  ) : tray === "pin" ? (
+                    <PinDropContent onDrop={dropPin} />
+                  ) : (
+                    <MyPinsContent pins={pins} onDelete={id => setPins(prev => prev.filter(p => p.id !== id))} />
+                  ),
+                }}
+              </Tray>
+            )}
+          </AnimatePresence>
         </div>
       </motion.div>
-    </AnimatePresence>
+    </>
   );
 };
 
