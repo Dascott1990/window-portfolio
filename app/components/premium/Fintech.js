@@ -1,1141 +1,954 @@
 "use client";
 /**
- * Fintech.js — NovaPay, real wallet
- * ─────────────────────────────────────────────────────────────────────────
- * Every number on this screen comes from the backend. There is no
- * client-side balance math, no Math.random() deciding if a payment
- * succeeds, and no hardcoded card data. Balance and cards are fetched
- * from /api/v1/wallet; sending money calls /api/v1/wallet/send, which
- * the backend either approves (debits the real persisted balance) or
- * declines (insufficient funds — a real check, not a coin flip).
- *
- * This is not a real bank — it's a real ledger. Funds only exist because
- * you top up the wallet yourself; nothing is pre-loaded as a demo prop.
+ * Fintech.js — NovaPay Finance OS
+ * Mobile-first. Every touch target >= 44px. Thumb-zone navigation at bottom.
+ * Responsive from 320px phones to 1280px desktop. Real-life finance app feel.
  */
-import React, { useState, useEffect, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { walletAPI, transactionsAPI } from "../../lib/api";
 
-// ─── Design tokens ────────────────────────────────────────────────────────────
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+
+// ── Design tokens ─────────────────────────────────────────────────────────────
 const C = {
-  bg:       "#070A12",
-  surface:  "#0D1220",
-  card:     "#111827",
-  border:   "rgba(255,255,255,0.07)",
-  gold:     "#C9A84C",
-  goldLight:"#E8C97A",
-  blue:     "#3B7CFF",
-  green:    "#22C55E",
-  red:      "#EF4444",
-  muted:    "rgba(255,255,255,0.35)",
-  sub:      "rgba(255,255,255,0.18)",
+  bg:       "#07090F",
+  surface:  "#0E1118",
+  card:     "#131720",
+  raised:   "#1A2030",
+  border:   "rgba(255,255,255,0.06)",
+  borderHi: "rgba(255,255,255,0.12)",
+  paper:    "#F0EDE8",
+  sub:      "#8A9BB0",
+  muted:    "rgba(138,155,176,0.5)",
+  gold:     "#D4A843",
+  goldLt:   "#F0C96A",
+  goldBg:   "rgba(212,168,67,0.1)",
+  goldBdr:  "rgba(212,168,67,0.25)",
+  green:    "#2DD87A",
+  greenBg:  "rgba(45,216,122,0.1)",
+  greenBdr: "rgba(45,216,122,0.25)",
+  red:      "#F05454",
+  redBg:    "rgba(240,84,84,0.08)",
+  redBdr:   "rgba(240,84,84,0.2)",
+  violet:   "#9B8CFF",
+  violetBg: "rgba(155,140,255,0.1)",
+  violetBdr:"rgba(155,140,255,0.25)",
+  blue:     "#5BA4F5",
+  sans:     "-apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif",
+  mono:     "'SF Mono', 'JetBrains Mono', monospace",
 };
 
-const Ico = ({ d, size = 18, color = "currentColor", fill = "none", sw = 1.6 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill={fill}
-    stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
-    {Array.isArray(d) ? d.map((p,i)=><path key={i} d={p}/>) : <path d={d}/>}
-  </svg>
+// ── Responsive hook ───────────────────────────────────────────────────────────
+function useWidth() {
+  const [w, setW] = useState(375);
+  useEffect(() => {
+    const update = () => setW(window.innerWidth);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+  return w;
+}
+
+const bp = (w) => ({
+  xs:  w < 380,
+  sm:  w < 480,
+  md:  w < 768,
+  lg:  w >= 768,
+});
+
+// ── API helpers ───────────────────────────────────────────────────────────────
+async function api(path, opts = {}) {
+  const res = await fetch(`${API}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...opts,
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.message || `Error ${res.status}`);
+  return json.data ?? json;
+}
+const get  = (p)    => api(p);
+const post = (p, b) => api(p, { method: "POST",   body: JSON.stringify(b) });
+const del  = (p)    => api(p, { method: "DELETE" });
+
+const fmt = (n, cur = "CAD") =>
+  `$${Number(n || 0).toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const fmtK = (n) => {
+  const v = Number(n || 0);
+  if (v >= 1000) return `$${(v / 1000).toFixed(1)}k`;
+  return `$${v.toFixed(0)}`;
+};
+
+// ── Spinner ───────────────────────────────────────────────────────────────────
+const Spin = ({ size = 18, color = C.gold }) => (
+  <div style={{ width: size, height: size, borderRadius: "50%", border: `2px solid ${color}40`, borderTopColor: color, animation: "nova-spin 0.75s linear infinite", flexShrink: 0 }} />
 );
 
-const ICONS = {
-  close:   "M18 6 6 18M6 6l12 12",
-  send:    "M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z",
-  receive: "M12 2v20M2 12h20",
-  history: "M3 12a9 9 0 1 0 18 0A9 9 0 0 0 3 12zm9-4v4l3 3",
-  card:    "M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7zm0 4h20",
-  nfc:     ["M6 8.5A6.5 6.5 0 0 1 12 2","M6 12a6 6 0 0 1 6-6","M6 15.5A9.5 9.5 0 0 1 12 6","M6 19A13 13 0 0 1 12 6"],
-  check:   "M20 6 9 17l-5-5",
-  error:   "M12 2a10 10 0 1 1 0 20A10 10 0 0 1 12 2zm0 6v4m0 4h.01",
-  wifi:    ["M5 12.55a11 11 0 0 1 14.08 0","M1.42 9a16 16 0 0 1 21.16 0","M8.53 16.11a6 6 0 0 1 6.95 0","M12 20h.01"],
-  arrow:   "M5 12h14M12 5l7 7-7 7",
-  plus:    "M12 5v14M5 12h14",
-  refresh: "M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15",
-  lock:    "M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2zm-7 4v3M7 11V7a5 5 0 0 1 10 0v4",
-};
+// ── Input — styled, visible, accessible ──────────────────────────────────────
+const Input = ({ value, onChange, placeholder, type = "text", onKeyDown, autoFocus }) => (
+  <input
+    type={type}
+    value={value}
+    onChange={onChange}
+    placeholder={placeholder}
+    onKeyDown={onKeyDown}
+    autoFocus={autoFocus}
+    style={{
+      width: "100%", boxSizing: "border-box",
+      padding: "14px 16px", borderRadius: 14,
+      background: C.raised, border: `1.5px solid ${C.border}`,
+      color: C.paper, fontSize: 16, fontFamily: C.sans,
+      outline: "none", WebkitAppearance: "none",
+      caretColor: C.gold,
+      transition: "border-color 0.15s",
+    }}
+    onFocus={e => { e.target.style.borderColor = C.goldBdr; }}
+    onBlur={e => { e.target.style.borderColor = C.border; }}
+  />
+);
 
-const QUICK = [10, 25, 50, 100, 250];
+const Select = ({ value, onChange, children }) => (
+  <select value={value} onChange={onChange}
+    style={{ width: "100%", boxSizing: "border-box", padding: "14px 16px", borderRadius: 14, background: C.raised, border: `1.5px solid ${C.border}`, color: C.paper, fontSize: 16, fontFamily: C.sans, outline: "none", WebkitAppearance: "none" }}>
+    {children}
+  </select>
+);
 
-const MERCHANTS = [
-  { name: "Tim Hortons",  emoji: "☕", category: "Food" },
-  { name: "Shopify",      emoji: "🛍", category: "Shopping" },
-  { name: "TTC Transit",  emoji: "🚇", category: "Transport" },
-  { name: "Costco",       emoji: "🏪", category: "Retail" },
-  { name: "Netflix",      emoji: "🎬", category: "Entertainment" },
-  { name: "Custom",       emoji: "✏️", category: "" },
-];
+// ── Primary button ─────────────────────────────────────────────────────────────
+const PrimaryBtn = ({ onClick, children, color = C.gold, disabled, loading }) => (
+  <motion.button whileTap={disabled ? {} : { scale: 0.97 }} onClick={onClick} disabled={disabled || loading}
+    style={{
+      width: "100%", padding: "16px", borderRadius: 16, border: "none",
+      background: disabled || loading ? C.raised : `linear-gradient(135deg, ${color}, ${color}cc)`,
+      color: disabled || loading ? C.muted : "#000",
+      fontSize: 16, fontWeight: 700, fontFamily: C.sans,
+      cursor: disabled || loading ? "not-allowed" : "pointer",
+      display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+      minHeight: 52,
+    }}>
+    {loading ? <Spin size={18} color="#000" /> : children}
+  </motion.button>
+);
 
-const TABS = [
-  { id: "send",    label: "Send",    icon: ICONS.send },
-  { id: "request", label: "Request", icon: ICONS.receive },
-  { id: "history", label: "History", icon: ICONS.history },
-  { id: "cards",   label: "Cards",   icon: ICONS.card },
-];
+// ── Ghost button ───────────────────────────────────────────────────────────────
+const GhostBtn = ({ onClick, children, color = C.gold, small }) => (
+  <motion.button whileTap={{ scale: 0.95 }} onClick={onClick}
+    style={{
+      padding: small ? "8px 14px" : "12px 18px", borderRadius: 12, border: `1.5px solid ${color}40`,
+      background: color + "10", color: color, fontSize: small ? 13 : 14,
+      fontWeight: 600, fontFamily: C.sans, cursor: "pointer",
+      display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
+      minHeight: small ? 36 : 44,
+    }}>
+    {children}
+  </motion.button>
+);
 
-const DECLINE_MESSAGES = {
-  insufficient_funds:  "Your wallet balance is too low for this payment. Top up to continue.",
-  insufficient_credit: "This card's available credit is too low for this payment.",
-};
+// ── Pill / Tag ─────────────────────────────────────────────────────────────────
+const Tag = ({ label, color }) => (
+  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.07em", color, background: color + "18", border: `1px solid ${color}33`, borderRadius: 20, padding: "3px 8px", fontFamily: C.mono, whiteSpace: "nowrap" }}>
+    {label}
+  </span>
+);
 
-const fmt = (n) => Number(n || 0).toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// ── Progress bar ──────────────────────────────────────────────────────────────
+const ProgressBar = ({ pct, color }) => (
+  <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+    <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(100, pct)}%` }}
+      transition={{ duration: 0.8, ease: [0.16,1,0.3,1] }}
+      style={{ height: "100%", borderRadius: 3, background: color }} />
+  </div>
+);
 
-function GoldDivider() {
-  return <div style={{ height: 1, background: `linear-gradient(90deg, transparent, ${C.gold}44, transparent)`, margin: "0 -24px" }} />;
-}
+// ── Section header row ─────────────────────────────────────────────────────────
+const SectionHead = ({ label, action }) => (
+  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+    <p style={{ fontFamily: C.mono, fontSize: 10, color: C.muted, letterSpacing: "0.1em", margin: 0 }}>{label}</p>
+    {action}
+  </div>
+);
 
-function StatusBadge({ status }) {
-  const map = {
-    success: { color: C.green, label: "Completed" },
-    failed:  { color: C.red,   label: "Failed" },
-    pending: { color: C.gold,  label: "Pending" },
-  };
-  const s = map[status] || map.pending;
-  return (
-    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.07em",
-      color: s.color, background: s.color + "18", border: `1px solid ${s.color}33`,
-      borderRadius: 20, padding: "2px 8px" }}>
-      {s.label.toUpperCase()}
-    </span>
-  );
-}
+// ── Divider ───────────────────────────────────────────────────────────────────
+const Divider = () => <div style={{ height: 1, background: C.border, margin: "4px 0" }} />;
 
-// ─── Animated balance counter — animates between two REAL fetched values ──────
-function BalanceCounter({ value }) {
-  const [displayed, setDisplayed] = useState(value);
+// ── Empty state ───────────────────────────────────────────────────────────────
+const Empty = ({ icon, title, sub }) => (
+  <div style={{ textAlign: "center", padding: "32px 20px" }}>
+    <div style={{ fontSize: 36, marginBottom: 12 }}>{icon}</div>
+    <p style={{ color: C.paper, fontSize: 15, fontWeight: 600, margin: "0 0 6px" }}>{title}</p>
+    <p style={{ color: C.sub, fontSize: 13, margin: 0, lineHeight: 1.6 }}>{sub}</p>
+  </div>
+);
+
+// ── Skeleton loader ───────────────────────────────────────────────────────────
+const Skeleton = ({ h = 72, r = 16 }) => (
+  <div style={{ height: h, borderRadius: r, background: C.raised, animation: "nova-pulse 1.4s ease-in-out infinite" }} />
+);
+
+// ── Animated free balance ─────────────────────────────────────────────────────
+function FreeBalance({ value }) {
+  const [d, setD] = useState(value);
   useEffect(() => {
-    const start = displayed;
-    const end   = value;
-    const diff  = end - start;
-    if (Math.abs(diff) < 0.01) { setDisplayed(end); return; }
-    let frame = 0;
-    const total = 30;
+    const diff = value - d;
+    if (Math.abs(diff) < 0.01) { setD(value); return; }
+    let f = 0, total = 36;
     const id = setInterval(() => {
-      frame++;
-      const progress = frame / total;
-      const ease = 1 - Math.pow(1 - progress, 3);
-      setDisplayed(start + diff * ease);
-      if (frame >= total) { setDisplayed(end); clearInterval(id); }
+      f++;
+      setD(d + diff * (1 - Math.pow(1 - f / total, 3)));
+      if (f >= total) { setD(value); clearInterval(id); }
     }, 16);
     return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
-  return <span>{fmt(displayed)}</span>;
-}
-
-// ─── Virtual credit card — renders REAL card data from backend, masked ────────
-function CreditCard({ card, flipped, onFlip }) {
-  const accent = card.is_primary ? C.gold : "#60a5fa";
-  const expStr = `${String(card.expiry_month).padStart(2, "0")}/${String(card.expiry_year).slice(-2)}`;
-
+  const dollars = Math.floor(Math.abs(d)).toLocaleString("en-CA");
+  const cents   = (Math.abs(d) % 1).toFixed(2).slice(1);
   return (
-    <div style={{ perspective: 1000, width: "100%", maxWidth: 340, cursor: "pointer" }} onClick={onFlip}>
-      <motion.div
-        animate={{ rotateY: flipped ? 180 : 0 }}
-        transition={{ type: "spring", damping: 20, stiffness: 180 }}
-        style={{ transformStyle: "preserve-3d", position: "relative", height: 200 }}
-      >
-        {/* Front */}
-        <div style={{
-          position: "absolute", inset: 0, backfaceVisibility: "hidden",
-          borderRadius: 20, background: "linear-gradient(135deg, #1a2744 0%, #0d1c3d 50%, #162035 100%)",
-          border: `1px solid ${accent}33`,
-          boxShadow: `0 24px 60px rgba(0,0,0,0.6), 0 0 0 1px ${accent}22, inset 0 1px 0 ${accent}22`,
-          padding: "22px 24px", display: "flex", flexDirection: "column", justifyContent: "space-between",
-          overflow: "hidden",
-        }}>
-          <div style={{ position: "absolute", inset: 0, borderRadius: 20, pointerEvents: "none",
-            background: "linear-gradient(135deg, rgba(255,255,255,0.05) 0%, transparent 50%, rgba(255,255,255,0.03) 100%)" }} />
-          <div style={{ position: "absolute", top: 40, right: 30, width: 80, height: 80,
-            borderRadius: "50%", background: `radial-gradient(circle, ${accent}18, transparent 70%)`,
-            pointerEvents: "none" }} />
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <div>
-              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.2em", color: accent, marginBottom: 4 }}>
-                {card.label.toUpperCase()}
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", letterSpacing: "0.05em" }}>NovaPay</div>
-            </div>
-            <Ico d={ICONS.wifi} size={22} color={accent} sw={1.4} />
-          </div>
-          <div style={{ width: 36, height: 28, borderRadius: 5,
-            background: `linear-gradient(135deg, ${accent}cc, ${accent}66)`,
-            border: `1px solid ${accent}88`, position: "relative" }}>
-            <div style={{ position: "absolute", top: "50%", left: 0, right: 0, height: 1,
-              background: `${accent}66`, transform: "translateY(-50%)" }} />
-            <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 1,
-              background: `${accent}66`, transform: "translateX(-50%)" }} />
-          </div>
-          <div>
-            <div style={{ fontFamily: "'Courier New', monospace", fontSize: 15,
-              color: "#fff", letterSpacing: "0.18em", marginBottom: 10 }}>
-              •••• •••• •••• {card.last4}
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-              <div>
-                <div style={{ fontSize: 8, color: accent, letterSpacing: "0.12em", marginBottom: 2 }}>NETWORK</div>
-                <div style={{ fontSize: 11, color: "#fff", fontWeight: 600, letterSpacing: "0.08em" }}>{card.network.toUpperCase()}</div>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 8, color: accent, letterSpacing: "0.12em", marginBottom: 2 }}>EXPIRES</div>
-                <div style={{ fontSize: 11, color: "#fff", fontWeight: 600 }}>{expStr}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-        {/* Back */}
-        <div style={{
-          position: "absolute", inset: 0, backfaceVisibility: "hidden",
-          transform: "rotateY(180deg)", borderRadius: 20,
-          background: "linear-gradient(135deg, #1a2744 0%, #0d1c3d 50%, #162035 100%)",
-          border: `1px solid ${accent}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.6)`, overflow: "hidden",
-        }}>
-          <div style={{ height: 44, background: "#000", margin: "24px 0 20px" }} />
-          <div style={{ padding: "0 24px" }}>
-            <div style={{ fontSize: 9, color: C.muted, lineHeight: 1.6 }}>
-              This is a NovaPay wallet card — a real, persisted record in your account's
-              ledger. No full card number is ever stored; only the last 4 digits shown
-              on the front are kept.
-            </div>
-          </div>
-        </div>
-      </motion.div>
+    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", gap: 4, lineHeight: 1 }}>
+      <span style={{ fontSize: 22, color: C.green, marginTop: 8, fontWeight: 300 }}>$</span>
+      <span style={{ fontSize: 56, fontWeight: 800, color: C.green, fontVariantNumeric: "tabular-nums", letterSpacing: "-2px" }}>{dollars}</span>
+      <span style={{ fontSize: 24, color: C.green, marginTop: 10, opacity: 0.7 }}>{cents}</span>
     </div>
   );
 }
 
-// ─── Send tab — calls walletAPI.send, shows the REAL backend outcome ──────────
-function SendTab({ wallet, cards, onWalletChanged }) {
-  const [step,           setStep]           = useState("amount");
-  const [amount,         setAmount]         = useState("");
-  const [merchant,       setMerchant]       = useState(null);
-  const [customMerchant, setCustomMerchant] = useState("");
-  const [note,           setNote]           = useState("");
-  const [senderEmail,    setSenderEmail]    = useState("");
-  const [recipientEmail, setRecipientEmail] = useState("");
-  const [useCard,        setUseCard]        = useState(null); // null = pay from wallet balance
-  const [result,         setResult]         = useState(null); // the real transaction record
-  const [error,          setError]          = useState(null);
+// ══════════════════════════════════════════════════════════════════════════════
+// OVERVIEW TAB
+// ══════════════════════════════════════════════════════════════════════════════
+function OverviewTab({ summary, envelopes, w }) {
+  const b = bp(w);
+  if (!summary) return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {[120, 80, 80, 80].map((h, i) => <Skeleton key={i} h={h} />)}
+    </div>
+  );
 
-  const finalMerchant = merchant?.name === "Custom" ? customMerchant : merchant?.name;
-  const finalAmount   = parseFloat(amount) || 0;
-
-  const handleProcess = async () => {
-    setStep("processing");
-    setError(null);
-    try {
-      const txn = await walletAPI.send({
-        merchant: finalMerchant || "Unknown",
-        amount: finalAmount,
-        currency: wallet?.currency || "CAD",
-        method: useCard ? "card" : "wallet",
-        card_id: useCard?.id,
-        notes: note || undefined,
-        sender_email: senderEmail || undefined,
-        recipient_email: recipientEmail || undefined,
-      });
-      setResult(txn);
-      setStep(txn.status === "success" ? "success" : "failed");
-      if (txn.status === "success") onWalletChanged();
-    } catch (e) {
-      setError(e.message || "Could not reach the wallet service.");
-      setStep("failed");
-      setResult(null);
-    }
-  };
-
-  const reset = () => {
-    setStep("amount"); setAmount(""); setMerchant(null);
-    setCustomMerchant(""); setNote(""); setSenderEmail(""); setRecipientEmail("");
-    setUseCard(null); setResult(null); setError(null);
-  };
-
-  const availableBalance = wallet ? Number(wallet.balance) : 0;
-  const exceedsBalance = !useCard && finalAmount > availableBalance;
+  const free     = summary.free_balance ?? 0;
+  const wallet   = summary.wallet_balance ?? 0;
+  const bills    = summary.committed_before_pay ?? 0;
+  const saving   = summary.envelope_per_cycle ?? 0;
+  const days     = summary.days_to_pay;
+  const nextAmt  = summary.next_pay_amount ?? 0;
+  const nextDate = summary.next_pay_date;
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 20 }}>
-      <AnimatePresence mode="wait">
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
-        {step === "amount" && (
-          <motion.div key="amount"
-            initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.22 }}
-            style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.14em", color: C.gold, marginBottom: 16 }}>
-                ENTER AMOUNT
+      {/* Free balance hero card */}
+      <div style={{ borderRadius: 24, padding: "28px 24px", background: `linear-gradient(160deg, #0D1A1A 0%, #071210 100%)`, border: `1px solid ${C.greenBdr}`, textAlign: "center" }}>
+        <p style={{ fontFamily: C.mono, fontSize: 10, color: C.green, letterSpacing: "0.14em", marginBottom: 16, opacity: 0.7 }}>YOURS TO SPEND FREELY</p>
+        <FreeBalance value={free} />
+        <p style={{ color: C.sub, fontSize: 13, marginTop: 10 }}>after all bills & savings are set aside</p>
+        <div style={{ height: 1, background: C.border, margin: "20px 0" }} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+          {[
+            { label: "In wallet", val: fmt(wallet), color: C.paper },
+            { label: "Bills due", val: fmt(bills),  color: C.red   },
+            { label: "Saving",    val: fmt(saving), color: C.violet},
+          ].map(s => (
+            <div key={s.label}>
+              <p style={{ fontFamily: C.mono, fontSize: 9, color: C.muted, letterSpacing: "0.08em", marginBottom: 4 }}>{s.label.toUpperCase()}</p>
+              <p style={{ fontFamily: C.mono, fontSize: b.xs ? 12 : 14, fontWeight: 700, color: s.color, margin: 0 }}>{s.val}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Next paycheck */}
+      {nextDate && (
+        <div style={{ borderRadius: 20, padding: "18px 20px", background: C.greenBg, border: `1px solid ${C.greenBdr}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <p style={{ fontFamily: C.mono, fontSize: 10, color: C.green, letterSpacing: "0.1em", marginBottom: 6, opacity: 0.8 }}>NEXT PAYCHECK</p>
+            <p style={{ fontSize: b.xs ? 20 : 24, fontWeight: 800, color: C.paper, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(nextAmt)}</p>
+            <p style={{ color: C.sub, fontSize: 12, marginTop: 4 }}>{nextDate}</p>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <p style={{ fontSize: b.xs ? 40 : 52, fontWeight: 900, color: C.green, margin: 0, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{days}</p>
+            <p style={{ color: C.sub, fontSize: 11, marginTop: 2 }}>day{days !== 1 ? "s" : ""} away</p>
+          </div>
+        </div>
+      )}
+
+      {/* Bills due before payday */}
+      {summary.bills_before_pay?.length > 0 && (
+        <div style={{ borderRadius: 20, overflow: "hidden", border: `1px solid ${C.border}`, background: C.surface }}>
+          <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}` }}>
+            <p style={{ fontFamily: C.mono, fontSize: 10, color: C.red, letterSpacing: "0.1em", margin: 0, opacity: 0.9 }}>DUE BEFORE PAYDAY</p>
+          </div>
+          {summary.bills_before_pay.map((b, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderBottom: i < summary.bills_before_pay.length - 1 ? `1px solid ${C.border}` : "none" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 12, background: C.redBg, border: `1px solid ${C.redBdr}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>
+                  💸
+                </div>
+                <div>
+                  <p style={{ color: C.paper, fontSize: 15, fontWeight: 500, margin: 0 }}>{b.name}</p>
+                  <p style={{ color: C.sub, fontSize: 12, margin: "2px 0 0", fontFamily: C.mono }}>{b.due}</p>
+                </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
-                <span style={{ fontSize: 28, color: C.muted, fontWeight: 300 }}>{wallet?.currency || "CAD"}</span>
-                <input
-                  type="number" min="0.01" step="0.01"
-                  value={amount}
-                  onChange={e => setAmount(e.target.value)}
-                  placeholder="0.00"
-                  style={{ background: "none", border: "none", outline: "none",
-                    fontSize: 56, fontWeight: 700, color: "#fff",
-                    width: 200, textAlign: "center",
-                    fontFamily: "'SF Mono', 'Fira Code', monospace" }}
-                />
+              <p style={{ fontFamily: C.mono, fontSize: 16, fontWeight: 700, color: C.red, margin: 0 }}>{fmt(b.amount)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Envelope rings */}
+      {envelopes?.length > 0 && (
+        <div style={{ borderRadius: 20, overflow: "hidden", border: `1px solid ${C.border}`, background: C.surface }}>
+          <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}` }}>
+            <p style={{ fontFamily: C.mono, fontSize: 10, color: C.muted, letterSpacing: "0.1em", margin: 0 }}>SAVINGS GOALS</p>
+          </div>
+          {envelopes.map((e, i) => {
+            const pct = Math.min(100, (e.saved / e.target_total) * 100);
+            return (
+              <div key={e.id} style={{ padding: "14px 18px", borderBottom: i < envelopes.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 22 }}>{e.emoji}</span>
+                    <p style={{ color: C.paper, fontSize: 15, fontWeight: 500, margin: 0 }}>{e.name}</p>
+                  </div>
+                  <p style={{ fontFamily: C.mono, fontSize: 13, color: e.color || C.violet, margin: 0 }}>{Math.round(pct)}%</p>
+                </div>
+                <ProgressBar pct={pct} color={e.color || C.violet} />
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+                  <p style={{ color: C.sub, fontSize: 12, margin: 0, fontFamily: C.mono }}>{fmt(e.saved)} saved</p>
+                  <p style={{ color: C.sub, fontSize: 12, margin: 0, fontFamily: C.mono }}>goal {fmt(e.target_total)}</p>
+                </div>
               </div>
-              <div style={{ height: 1, background: `linear-gradient(90deg, transparent, ${C.gold}66, transparent)`,
-                margin: "8px auto", maxWidth: 240 }} />
-              <p style={{ fontSize: 11, color: exceedsBalance ? C.red : C.muted, marginTop: 6 }}>
-                {useCard
-                  ? `Available credit: ${wallet?.currency || "CAD"} ${fmt(Number(useCard.credit_limit) - Number(useCard.spent))}`
-                  : `Wallet balance: ${wallet?.currency || "CAD"} ${fmt(availableBalance)}`}
+            );
+          })}
+        </div>
+      )}
+
+      {!nextDate && !summary.bills_before_pay?.length && (
+        <Empty icon="💡" title="Set up your finances" sub="Go to Bills to add your pay schedule and recurring bills — then come back to see your real free balance." />
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TIMELINE TAB
+// ══════════════════════════════════════════════════════════════════════════════
+function TimelineTab({ timeline }) {
+  if (!timeline) return <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{[1,2,3,4].map(i => <Skeleton key={i} h={80} />)}</div>;
+  if (!timeline.length) return <Empty icon="📅" title="No upcoming events" sub="Add a pay schedule and bills to see your 6-week financial forecast." />;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ padding: "12px 16px", borderRadius: 16, background: C.surface, border: `1px solid ${C.border}` }}>
+        <p style={{ color: C.sub, fontSize: 13, margin: 0, lineHeight: 1.5 }}>
+          Your next 6 weeks — income, bills, and your running balance after each event.
+        </p>
+      </div>
+      {timeline.map((day, i) => (
+        <div key={i} style={{ borderRadius: 18, background: C.surface, border: `1px solid ${C.border}`, overflow: "hidden" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", background: C.card, borderBottom: `1px solid ${C.border}` }}>
+            <p style={{ fontFamily: C.mono, fontSize: 12, color: C.sub, margin: 0 }}>{day.date}</p>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <p style={{ fontFamily: C.mono, fontSize: 12, color: C.paper, margin: 0 }}>balance</p>
+              <p style={{ fontFamily: C.mono, fontSize: 14, fontWeight: 700, color: day.balance > 0 ? C.green : C.red, margin: 0 }}>{fmt(day.balance)}</p>
+            </div>
+          </div>
+          {day.events.map((ev, j) => (
+            <div key={j} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", borderBottom: j < day.events.length - 1 ? `1px solid ${C.border}` : "none" }}>
+              <div style={{ width: 40, height: 40, borderRadius: 12, background: ev.type === "income" ? C.greenBg : C.redBg, border: `1px solid ${ev.type === "income" ? C.greenBdr : C.redBdr}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>
+                {ev.type === "income" ? "💵" : "📋"}
+              </div>
+              <p style={{ flex: 1, color: C.paper, fontSize: 15, margin: 0, fontWeight: 500 }}>{ev.label}</p>
+              <p style={{ fontFamily: C.mono, fontSize: 15, fontWeight: 700, color: ev.type === "income" ? C.green : C.red, margin: 0 }}>
+                {ev.type === "income" ? "+" : "−"}{fmt(ev.amount)}
               </p>
             </div>
-
-            <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-              {QUICK.map(q => (
-                <motion.button key={q} whileTap={{ scale: 0.93 }}
-                  onClick={() => setAmount(String(q))}
-                  style={{ padding: "6px 16px", borderRadius: 20,
-                    background: amount === String(q) ? C.gold + "22" : "rgba(255,255,255,0.05)",
-                    border: `1px solid ${amount === String(q) ? C.gold + "66" : C.border}`,
-                    color: amount === String(q) ? C.gold : C.muted,
-                    fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                  ${q}
-                </motion.button>
-              ))}
-            </div>
-
-            {/* Pay-from selector — wallet balance or a real card */}
-            {cards.length > 0 && (
-              <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 2 }}>
-                <PayFromChip active={!useCard} label="Wallet" onClick={() => setUseCard(null)} />
-                {cards.map(c => (
-                  <PayFromChip key={c.id} active={useCard?.id === c.id} label={`···· ${c.last4}`} onClick={() => setUseCard(c)} />
-                ))}
-              </div>
-            )}
-
-            <motion.button whileTap={{ scale: 0.97 }}
-              onClick={() => finalAmount > 0 && setStep("merchant")}
-              disabled={finalAmount <= 0}
-              style={{ padding: "15px 0", borderRadius: 14,
-                background: finalAmount > 0 ? `linear-gradient(135deg, ${C.gold}, #a07830)` : "rgba(255,255,255,0.06)",
-                border: finalAmount > 0 ? "none" : `1px solid ${C.border}`,
-                color: finalAmount > 0 ? "#000" : C.sub,
-                fontSize: 14, fontWeight: 700, letterSpacing: "0.06em",
-                cursor: finalAmount > 0 ? "pointer" : "not-allowed",
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              CONTINUE <Ico d={ICONS.arrow} size={16} color={finalAmount > 0 ? "#000" : C.sub} />
-            </motion.button>
-          </motion.div>
-        )}
-
-        {step === "merchant" && (
-          <motion.div key="merchant"
-            initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.22 }}
-            style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <BackButton onClick={() => setStep("amount")} />
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.14em", color: C.gold }}>
-                SELECT MERCHANT
-              </div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              {MERCHANTS.map(m => (
-                <motion.button key={m.name} whileTap={{ scale: 0.96 }}
-                  onClick={() => setMerchant(m)}
-                  style={{ padding: "12px 14px", borderRadius: 12, textAlign: "left",
-                    background: merchant?.name === m.name ? C.gold + "18" : "rgba(255,255,255,0.04)",
-                    border: `1px solid ${merchant?.name === m.name ? C.gold + "55" : C.border}`,
-                    cursor: "pointer" }}>
-                  <div style={{ fontSize: 22, marginBottom: 4 }}>{m.emoji}</div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "#fff" }}>{m.name}</div>
-                  {m.category && <div style={{ fontSize: 10, color: C.muted }}>{m.category}</div>}
-                </motion.button>
-              ))}
-            </div>
-            {merchant?.name === "Custom" && (
-              <input value={customMerchant} onChange={e => setCustomMerchant(e.target.value)}
-                placeholder="Enter merchant name…"
-                style={{ padding: "10px 14px", borderRadius: 10, background: "rgba(255,255,255,0.06)",
-                  border: `1px solid ${C.border}`, color: "#fff", fontSize: 13, outline: "none" }} />
-            )}
-            <input value={note} onChange={e => setNote(e.target.value)}
-              placeholder="Add a note (optional)…"
-              style={{ padding: "10px 14px", borderRadius: 10, background: "rgba(255,255,255,0.06)",
-                border: `1px solid ${C.border}`, color: "#fff", fontSize: 13, outline: "none" }} />
-            <input value={senderEmail} onChange={e => setSenderEmail(e.target.value)}
-              type="email"
-              placeholder="Your email — get a confirmation receipt (optional)"
-              style={{ padding: "10px 14px", borderRadius: 10, background: "rgba(255,255,255,0.06)",
-                border: `1px solid ${C.border}`, color: "#fff", fontSize: 13, outline: "none" }} />
-            <input value={recipientEmail} onChange={e => setRecipientEmail(e.target.value)}
-              type="email"
-              placeholder="Recipient email — notify them of payment (optional)"
-              style={{ padding: "10px 14px", borderRadius: 10, background: "rgba(255,255,255,0.06)",
-                border: `1px solid ${C.border}`, color: "#fff", fontSize: 13, outline: "none" }} />
-            <motion.button whileTap={{ scale: 0.97 }}
-              onClick={() => (merchant && (merchant.name !== "Custom" || customMerchant)) && setStep("confirm")}
-              style={{ padding: "15px 0", borderRadius: 14,
-                background: (merchant && (merchant.name !== "Custom" || customMerchant))
-                  ? `linear-gradient(135deg, ${C.gold}, #a07830)` : "rgba(255,255,255,0.06)",
-                border: "none", color: "#000", fontSize: 14, fontWeight: 700,
-                letterSpacing: "0.06em", cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              REVIEW <Ico d={ICONS.arrow} size={16} color="#000" />
-            </motion.button>
-          </motion.div>
-        )}
-
-        {step === "confirm" && (
-          <motion.div key="confirm"
-            initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.22 }}
-            style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <BackButton onClick={() => setStep("merchant")} />
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.14em", color: C.gold }}>
-                CONFIRM PAYMENT
-              </div>
-            </div>
-            <div style={{ borderRadius: 16, background: "rgba(255,255,255,0.03)",
-              border: `1px solid ${C.border}`, overflow: "hidden" }}>
-              <div style={{ padding: "20px 20px 16px", borderBottom: `1px solid ${C.border}` }}>
-                <div style={{ fontSize: 10, color: C.muted, letterSpacing: "0.1em", marginBottom: 6 }}>PAYMENT AMOUNT</div>
-                <div style={{ fontSize: 36, fontWeight: 800, color: "#fff", fontFamily: "'SF Mono', monospace" }}>
-                  <span style={{ fontSize: 16, color: C.gold, marginRight: 4 }}>{wallet?.currency || "CAD"}</span>
-                  {fmt(finalAmount)}
-                </div>
-              </div>
-              {[
-                { label: "TO",     value: finalMerchant },
-                { label: "FROM",   value: useCard ? `NovaPay Card ···· ${useCard.last4}` : "NovaPay Wallet Balance" },
-                { label: "METHOD", value: useCard ? "Card" : "Wallet" },
-                ...(note           ? [{ label: "NOTE",      value: note }]           : []),
-                ...(senderEmail    ? [{ label: "YOUR EMAIL",value: senderEmail }]     : []),
-                ...(recipientEmail ? [{ label: "NOTIFY",    value: recipientEmail }]  : []),
-              ].map(r => (
-                <div key={r.label} style={{ padding: "10px 20px", display: "flex",
-                  justifyContent: "space-between", borderBottom: `1px solid ${C.border}` }}>
-                  <span style={{ fontSize: 10, color: C.muted, letterSpacing: "0.1em" }}>{r.label}</span>
-                  <span style={{ fontSize: 12, color: "#fff", fontWeight: 500 }}>{r.value}</span>
-                </div>
-              ))}
-            </div>
-            {exceedsBalance && (
-              <div style={{ display: "flex", alignItems: "center", gap: 6,
-                padding: "10px 14px", borderRadius: 10, background: C.red + "12",
-                border: `1px solid ${C.red}33` }}>
-                <Ico d={ICONS.error} size={13} color={C.red} />
-                <span style={{ fontSize: 11, color: C.red }}>
-                  This exceeds your available {useCard ? "credit" : "balance"} — the bank will decline it.
-                </span>
-              </div>
-            )}
-            <motion.button whileTap={{ scale: 0.97 }} onClick={handleProcess}
-              style={{ padding: "16px 0", borderRadius: 14,
-                background: `linear-gradient(135deg, ${C.gold}, #a07830)`,
-                border: "none", color: "#000", fontSize: 14, fontWeight: 800,
-                letterSpacing: "0.08em", cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              <Ico d={ICONS.nfc[0]} size={16} color="#000" />
-              CONFIRM & PAY
-            </motion.button>
-          </motion.div>
-        )}
-
-        {step === "processing" && (
-          <motion.div key="processing"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-            style={{ flex: 1, display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center", gap: 24, padding: "40px 0" }}>
-            <div style={{ position: "relative", width: 120, height: 120,
-              display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {[0,1,2].map(i => (
-                <motion.div key={i}
-                  animate={{ scale: [1, 2.2], opacity: [0.5, 0] }}
-                  transition={{ duration: 1.8, repeat: Infinity, delay: i * 0.5, ease: "easeOut" }}
-                  style={{ position: "absolute", width: 40, height: 40, borderRadius: "50%",
-                    border: `2px solid ${C.gold}` }} />
-              ))}
-              <div style={{ width: 56, height: 56, borderRadius: "50%",
-                background: `linear-gradient(135deg, ${C.gold}33, ${C.gold}11)`,
-                border: `2px solid ${C.gold}66`,
-                display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Ico d={ICONS.wifi[0]} size={22} color={C.gold} />
-              </div>
-            </div>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", marginBottom: 6 }}>
-                Contacting wallet service
-              </div>
-              <div style={{ fontSize: 12, color: C.muted }}>
-                {wallet?.currency || "CAD"} {fmt(finalAmount)} → {finalMerchant}
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {step === "success" && (
-          <motion.div key="success"
-            initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-            style={{ flex: 1, display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center", gap: 20, padding: "40px 0" }}>
-            <motion.div
-              initial={{ scale: 0 }} animate={{ scale: 1 }}
-              transition={{ type: "spring", damping: 12, stiffness: 200, delay: 0.1 }}
-              style={{ width: 72, height: 72, borderRadius: "50%",
-                background: C.green + "22", border: `2px solid ${C.green}55`,
-                display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Ico d={ICONS.check} size={30} color={C.green} sw={2.5} />
-            </motion.div>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", marginBottom: 4 }}>Payment Sent!</div>
-              <div style={{ fontSize: 28, fontWeight: 800, color: C.green, fontFamily: "monospace", marginBottom: 6 }}>
-                {wallet?.currency || "CAD"} {fmt(finalAmount)}
-              </div>
-              <div style={{ fontSize: 13, color: C.muted }}>to {finalMerchant}</div>
-            </div>
-            {result?.id && (
-              <div style={{ padding: "12px 20px", borderRadius: 10, background: "rgba(255,255,255,0.04)",
-                border: `1px solid ${C.border}`, textAlign: "center" }}>
-                <div style={{ fontSize: 10, color: C.muted, letterSpacing: "0.1em", marginBottom: 4 }}>TRANSACTION ID</div>
-                <div style={{ fontFamily: "monospace", fontSize: 11, color: C.gold }}>{result.id}</div>
-              </div>
-            )}
-            <motion.button whileTap={{ scale: 0.97 }} onClick={reset}
-              style={{ padding: "13px 32px", borderRadius: 14,
-                background: `linear-gradient(135deg, ${C.gold}, #a07830)`,
-                border: "none", color: "#000", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-              New Payment
-            </motion.button>
-          </motion.div>
-        )}
-
-        {step === "failed" && (
-          <motion.div key="failed"
-            initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-            style={{ flex: 1, display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center", gap: 20, padding: "40px 0" }}>
-            <div style={{ width: 72, height: 72, borderRadius: "50%",
-              background: C.red + "22", border: `2px solid ${C.red}55`,
-              display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Ico d={ICONS.error} size={30} color={C.red} />
-            </div>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", marginBottom: 6 }}>Payment Declined</div>
-              <div style={{ fontSize: 13, color: C.muted, maxWidth: 280 }}>
-                {error || DECLINE_MESSAGES[result?.decline_reason] || "The payment could not be completed."}
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 10, width: "100%" }}>
-              <motion.button whileTap={{ scale: 0.97 }} onClick={() => setStep("confirm")}
-                style={{ flex: 1, padding: "13px 0", borderRadius: 14,
-                  background: "rgba(255,255,255,0.06)", border: `1px solid ${C.border}`,
-                  color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                Try Again
-              </motion.button>
-              <motion.button whileTap={{ scale: 0.97 }} onClick={reset}
-                style={{ flex: 1, padding: "13px 0", borderRadius: 14,
-                  background: `linear-gradient(135deg, ${C.gold}, #a07830)`,
-                  border: "none", color: "#000", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                New Payment
-              </motion.button>
-            </div>
-          </motion.div>
-        )}
-
-      </AnimatePresence>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
 
-function PayFromChip({ active, label, onClick }) {
-  return (
-    <motion.button whileTap={{ scale: 0.95 }} onClick={onClick}
-      style={{ flexShrink: 0, padding: "6px 14px", borderRadius: 20,
-        background: active ? C.gold + "22" : "rgba(255,255,255,0.05)",
-        border: `1px solid ${active ? C.gold + "66" : C.border}`,
-        color: active ? C.gold : C.muted, fontSize: 11, fontWeight: 600,
-        whiteSpace: "nowrap", cursor: "pointer" }}>
-      {label}
-    </motion.button>
-  );
-}
+// ══════════════════════════════════════════════════════════════════════════════
+// BILLS TAB
+// ══════════════════════════════════════════════════════════════════════════════
+function BillsTab({ bills, schedules, onRefresh }) {
+  const [addingBill,    setAddingBill]    = useState(false);
+  const [addingPay,     setAddingPay]     = useState(false);
+  const [billForm,      setBillForm]      = useState({ name: "", amount: "", due_day: "", category: "other" });
+  const [payForm,       setPayForm]       = useState({ label: "Main Job", amount: "", frequency: "biweekly", next_pay_date: "" });
+  const [busy,          setBusy]          = useState(false);
+  const [err,           setErr]           = useState("");
 
-function BackButton({ onClick }) {
-  return (
-    <motion.button whileTap={{ scale: 0.93 }} onClick={onClick}
-      style={{ width: 34, height: 34, borderRadius: "50%", background: "rgba(255,255,255,0.06)",
-        border: `1px solid ${C.border}`, color: "#fff", cursor: "pointer",
-        display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <Ico d="M15 18l-6-6 6-6" size={16} />
-    </motion.button>
-  );
-}
+  const CATS = [
+    { id: "rent",         label: "Rent / Mortgage", emoji: "🏠" },
+    { id: "utilities",    label: "Utilities",        emoji: "⚡" },
+    { id: "phone",        label: "Phone",            emoji: "📱" },
+    { id: "subscription", label: "Subscription",     emoji: "🔄" },
+    { id: "insurance",    label: "Insurance",        emoji: "🛡️" },
+    { id: "transport",    label: "Transport",        emoji: "🚌" },
+    { id: "groceries",    label: "Groceries",        emoji: "🛒" },
+    { id: "other",        label: "Other",            emoji: "💸" },
+  ];
 
-// ─── Request tab — real persisted "pending" transaction, no money moves ───────
-function RequestTab({ wallet, onWalletChanged }) {
-  const [amount, setAmount] = useState("");
-  const [from,          setFrom]          = useState("");
-  const [requesterEmail,setRequesterEmail] = useState("");
-  const [notifyEmail,   setNotifyEmail]    = useState("");
-  const [sent,          setSent]           = useState(false);
-  const [saving,        setSaving]         = useState(false);
-  const [error,         setError]          = useState(null);
-
-  const handleSend = async () => {
-    setSaving(true);
-    setError(null);
+  const addBill = async () => {
+    if (!billForm.name || !billForm.amount || !billForm.due_day) { setErr("Fill in all fields."); return; }
+    setBusy(true); setErr("");
     try {
-      await walletAPI.request({
-        from,
-        amount: parseFloat(amount) || 0,
-        currency: wallet?.currency || "CAD",
-        requester_email: requesterEmail || undefined,
-        notify_email: notifyEmail || undefined,
-      });
-      setSent(true);
-      onWalletChanged();
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setSaving(false);
-    }
+      const cat = CATS.find(c => c.id === billForm.category);
+      await post("/api/v1/finance/bills", { ...billForm, amount: parseFloat(billForm.amount), due_day: parseInt(billForm.due_day), emoji: cat?.emoji || "💸" });
+      setBillForm({ name: "", amount: "", due_day: "", category: "other" });
+      setAddingBill(false); onRefresh();
+    } catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
   };
 
-  if (sent) return (
-    <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-      style={{ flex: 1, display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "center", gap: 20 }}>
-      <div style={{ width: 64, height: 64, borderRadius: "50%",
-        background: C.blue + "22", border: `2px solid ${C.blue}55`,
-        display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <Ico d={ICONS.check} size={26} color={C.blue} sw={2.5} />
-      </div>
-      <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", marginBottom: 6 }}>Request Recorded</div>
-        <div style={{ fontSize: 13, color: C.muted }}>
-          {wallet?.currency || "CAD"} {fmt(parseFloat(amount) || 0)} requested from {from} — logged as pending in your ledger.
+  const addSchedule = async () => {
+    if (!payForm.amount || !payForm.next_pay_date) { setErr("Fill in all fields."); return; }
+    setBusy(true); setErr("");
+    try {
+      await post("/api/v1/finance/schedules", { ...payForm, amount: parseFloat(payForm.amount) });
+      setPayForm({ label: "Main Job", amount: "", frequency: "biweekly", next_pay_date: "" });
+      setAddingPay(false); onRefresh();
+    } catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const FormSheet = ({ title, onSave, onCancel, children }) => (
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
+      style={{ borderRadius: 24, background: C.card, border: `1px solid ${C.borderHi}`, padding: 20, marginBottom: 12 }}>
+      <p style={{ fontFamily: C.mono, fontSize: 11, color: C.gold, letterSpacing: "0.1em", marginBottom: 16 }}>{title}</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {children}
+        {err && <p style={{ color: C.red, fontSize: 13, margin: 0 }}>{err}</p>}
+        <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+          <PrimaryBtn onClick={onSave} loading={busy}>Save</PrimaryBtn>
+          <GhostBtn onClick={onCancel}>Cancel</GhostBtn>
         </div>
       </div>
-      <motion.button whileTap={{ scale: 0.97 }} onClick={() => { setSent(false); setAmount(""); setFrom(""); }}
-        style={{ padding: "12px 28px", borderRadius: 14, background: `linear-gradient(135deg, ${C.gold}, #a07830)`,
-          border: "none", color: "#000", fontWeight: 700, cursor: "pointer" }}>
-        New Request
-      </motion.button>
     </motion.div>
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.14em", color: C.gold }}>REQUEST PAYMENT</div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 0" }}>
-        <span style={{ fontSize: 24, color: C.muted, marginRight: 6, fontWeight: 300 }}>{wallet?.currency || "CAD"}</span>
-        <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
-          placeholder="0.00"
-          style={{ background: "none", border: "none", outline: "none",
-            fontSize: 48, fontWeight: 800, color: "#fff", width: 160, textAlign: "center",
-            fontFamily: "monospace" }} />
-      </div>
-      <div style={{ height: 1, background: `linear-gradient(90deg, transparent, ${C.gold}55, transparent)` }} />
-      <input value={from} onChange={e => setFrom(e.target.value)}
-        placeholder="Request from (name or email)…"
-        style={{ padding: "12px 14px", borderRadius: 10, background: "rgba(255,255,255,0.05)",
-          border: `1px solid ${C.border}`, color: "#fff", fontSize: 13, outline: "none" }} />
-      <input value={notifyEmail} onChange={e => setNotifyEmail(e.target.value)}
-        type="email"
-        placeholder="Their email — send them the payment request (optional)"
-        style={{ padding: "12px 14px", borderRadius: 10, background: "rgba(255,255,255,0.05)",
-          border: `1px solid ${C.border}`, color: "#fff", fontSize: 13, outline: "none" }} />
-      <input value={requesterEmail} onChange={e => setRequesterEmail(e.target.value)}
-        type="email"
-        placeholder="Your email — get notified when paid (optional)"
-        style={{ padding: "12px 14px", borderRadius: 10, background: "rgba(255,255,255,0.05)",
-          border: `1px solid ${C.border}`, color: "#fff", fontSize: 13, outline: "none" }} />
-      {error && <p style={{ color: C.red, fontSize: 12 }}>{error}</p>}
-      <motion.button whileTap={{ scale: 0.97 }}
-        onClick={() => parseFloat(amount) > 0 && from && handleSend()}
-        disabled={saving}
-        style={{ padding: "15px 0", borderRadius: 14,
-          background: parseFloat(amount) > 0 && from
-            ? `linear-gradient(135deg, ${C.blue}, #2556cc)` : "rgba(255,255,255,0.06)",
-          border: "none", color: "#fff", fontWeight: 700, fontSize: 14,
-          letterSpacing: "0.06em", cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
-        {saving ? "SENDING…" : "SEND REQUEST"}
-      </motion.button>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+
+      {/* Income schedules */}
+      <SectionHead label="INCOME SCHEDULE" action={
+        <GhostBtn small onClick={() => { setAddingPay(v => !v); setAddingBill(false); setErr(""); }}>+ Add income</GhostBtn>
+      } />
+      <AnimatePresence>
+        {addingPay && (
+          <FormSheet title="ADD INCOME SOURCE" onSave={addSchedule} onCancel={() => setAddingPay(false)}>
+            <Input value={payForm.label} onChange={e => setPayForm(p => ({...p, label: e.target.value}))} placeholder="Label e.g. Main Job" />
+            <Input value={payForm.amount} onChange={e => setPayForm(p => ({...p, amount: e.target.value}))} placeholder="Net pay amount" type="number" />
+            <Input value={payForm.next_pay_date} onChange={e => setPayForm(p => ({...p, next_pay_date: e.target.value}))} placeholder="Next pay date" type="date" />
+            <Select value={payForm.frequency} onChange={e => setPayForm(p => ({...p, frequency: e.target.value}))}>
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Every 2 weeks</option>
+              <option value="semimonthly">Twice a month</option>
+              <option value="monthly">Monthly</option>
+            </Select>
+          </FormSheet>
+        )}
+      </AnimatePresence>
+
+      {schedules?.length === 0 && !addingPay ? (
+        <div style={{ borderRadius: 18, background: C.surface, border: `1.5px dashed ${C.border}`, padding: "24px 20px", textAlign: "center", marginBottom: 8 }}>
+          <p style={{ color: C.sub, fontSize: 14, margin: 0 }}>No income added yet — tap + to set up your pay schedule</p>
+        </div>
+      ) : (
+        schedules?.map(s => (
+          <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 18px", borderRadius: 18, background: C.surface, border: `1px solid ${C.border}`, marginBottom: 4 }}>
+            <div style={{ width: 48, height: 48, borderRadius: 14, background: C.greenBg, border: `1px solid ${C.greenBdr}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>💵</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ color: C.paper, fontSize: 15, fontWeight: 600, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.label}</p>
+              <p style={{ color: C.sub, fontSize: 12, margin: "2px 0 0", fontFamily: C.mono }}>{s.frequency} · next {s.next_pay_date}</p>
+            </div>
+            <div style={{ textAlign: "right", flexShrink: 0 }}>
+              <p style={{ fontFamily: C.mono, fontSize: 16, fontWeight: 700, color: C.green, margin: 0 }}>{fmt(s.amount)}</p>
+              <button onClick={() => { del(`/api/v1/finance/schedules/${s.id}`).then(onRefresh); }}
+                style={{ background: "none", border: "none", color: C.muted, fontSize: 11, cursor: "pointer", padding: "4px 0", fontFamily: C.sans }}>
+                Remove
+              </button>
+            </div>
+          </div>
+        ))
+      )}
+
+      <div style={{ height: 12 }} />
+
+      {/* Bills */}
+      <SectionHead label="RECURRING BILLS" action={
+        <GhostBtn small onClick={() => { setAddingBill(v => !v); setAddingPay(false); setErr(""); }}>+ Add bill</GhostBtn>
+      } />
+      <AnimatePresence>
+        {addingBill && (
+          <FormSheet title="ADD RECURRING BILL" onSave={addBill} onCancel={() => setAddingBill(false)}>
+            <Input value={billForm.name} onChange={e => setBillForm(p => ({...p, name: e.target.value}))} placeholder="Bill name e.g. Rent" />
+            <Input value={billForm.amount} onChange={e => setBillForm(p => ({...p, amount: e.target.value}))} placeholder="Amount" type="number" />
+            <Input value={billForm.due_day} onChange={e => setBillForm(p => ({...p, due_day: e.target.value}))} placeholder="Day of month it's due (1–31)" type="number" />
+            <Select value={billForm.category} onChange={e => setBillForm(p => ({...p, category: e.target.value}))}>
+              {CATS.map(c => <option key={c.id} value={c.id}>{c.emoji} {c.label}</option>)}
+            </Select>
+          </FormSheet>
+        )}
+      </AnimatePresence>
+
+      {bills?.length === 0 && !addingBill ? (
+        <div style={{ borderRadius: 18, background: C.surface, border: `1.5px dashed ${C.border}`, padding: "24px 20px", textAlign: "center" }}>
+          <p style={{ color: C.sub, fontSize: 14, margin: 0 }}>No bills yet — add rent, phone, subscriptions and more</p>
+        </div>
+      ) : (
+        bills?.map((b, i) => {
+          const suffix = ["st","nd","rd"][b.due_day-1] || "th";
+          return (
+            <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 18px", borderRadius: 18, background: C.surface, border: `1px solid ${C.border}`, marginBottom: 4 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 14, background: C.redBg, border: `1px solid ${C.redBdr}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>
+                {b.emoji}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ color: C.paper, fontSize: 15, fontWeight: 600, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.name}</p>
+                <p style={{ color: C.sub, fontSize: 12, margin: "2px 0 0" }}>Due {b.due_day}{suffix} · {b.category}</p>
+              </div>
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                <p style={{ fontFamily: C.mono, fontSize: 16, fontWeight: 700, color: C.red, margin: 0 }}>{fmt(b.amount)}</p>
+                <button onClick={() => { del(`/api/v1/finance/bills/${b.id}`).then(onRefresh); }}
+                  style={{ background: "none", border: "none", color: C.muted, fontSize: 11, cursor: "pointer", padding: "4px 0", fontFamily: C.sans }}>
+                  Remove
+                </button>
+              </div>
+            </div>
+          );
+        })
+      )}
     </div>
   );
 }
 
-// ─── History tab — real transaction ledger from the backend ───────────────────
-function HistoryTab({ wallet }) {
-  const [txns,    setTxns]    = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [total,   setTotal]   = useState(0);
+// ══════════════════════════════════════════════════════════════════════════════
+// ENVELOPES TAB
+// ══════════════════════════════════════════════════════════════════════════════
+function EnvelopesTab({ envelopes, onRefresh }) {
+  const [showAdd,      setShowAdd]      = useState(false);
+  const [contributing, setContributing] = useState(null);
+  const [contribAmt,   setContribAmt]   = useState("");
+  const [form,         setForm]         = useState({ name: "", target_total: "", per_cycle: "", emoji: "🎯", color: "#a78bfa" });
+  const [busy,         setBusy]         = useState(false);
+  const [err,          setErr]          = useState("");
+
+  const PRESETS = [
+    { emoji: "✈️", label: "Travel",    color: "#60a5fa" },
+    { emoji: "🏠", label: "Housing",   color: "#34d399" },
+    { emoji: "🚨", label: "Emergency", color: "#f87171" },
+    { emoji: "💻", label: "Tech",      color: "#fbbf24" },
+    { emoji: "🎓", label: "Education", color: "#e879f9" },
+    { emoji: "🎯", label: "Goal",      color: "#a78bfa" },
+  ];
+
+  const addEnvelope = async () => {
+    if (!form.name || !form.target_total || !form.per_cycle) { setErr("Fill in all fields."); return; }
+    setBusy(true); setErr("");
+    try {
+      await post("/api/v1/finance/envelopes", { ...form, target_total: parseFloat(form.target_total), per_cycle: parseFloat(form.per_cycle) });
+      setForm({ name: "", target_total: "", per_cycle: "", emoji: "🎯", color: "#a78bfa" });
+      setShowAdd(false); onRefresh();
+    } catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const contribute = async (id) => {
+    if (!contribAmt || parseFloat(contribAmt) <= 0) return;
+    await post(`/api/v1/finance/envelopes/${id}/contribute`, { amount: parseFloat(contribAmt) });
+    setContributing(null); setContribAmt(""); onRefresh();
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <SectionHead label="SAVINGS ENVELOPES" action={
+        <GhostBtn small onClick={() => setShowAdd(v => !v)}>+ New goal</GhostBtn>
+      } />
+
+      <AnimatePresence>
+        {showAdd && (
+          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }}
+            style={{ borderRadius: 24, background: C.card, border: `1px solid ${C.borderHi}`, padding: 20 }}>
+            <p style={{ fontFamily: C.mono, fontSize: 11, color: C.gold, letterSpacing: "0.1em", marginBottom: 16 }}>NEW SAVINGS GOAL</p>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+              {PRESETS.map(p => (
+                <motion.button key={p.emoji} whileTap={{ scale: 0.92 }}
+                  onClick={() => setForm(f => ({ ...f, emoji: p.emoji, color: p.color, name: f.name || p.label }))}
+                  style={{ padding: "8px 14px", borderRadius: 12, minHeight: 44, background: form.emoji === p.emoji ? p.color + "20" : C.raised, border: `1.5px solid ${form.emoji === p.emoji ? p.color + "50" : C.border}`, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: C.paper }}>
+                  {p.emoji} <span style={{ fontSize: 12, color: C.sub }}>{p.label}</span>
+                </motion.button>
+              ))}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <Input value={form.name} onChange={e => setForm(p => ({...p, name: e.target.value}))} placeholder="Goal name" />
+              <Input value={form.target_total} onChange={e => setForm(p => ({...p, target_total: e.target.value}))} placeholder="Target amount" type="number" />
+              <Input value={form.per_cycle} onChange={e => setForm(p => ({...p, per_cycle: e.target.value}))} placeholder="Save per pay cycle" type="number" />
+              {err && <p style={{ color: C.red, fontSize: 13, margin: 0 }}>{err}</p>}
+              <div style={{ display: "flex", gap: 10 }}>
+                <PrimaryBtn onClick={addEnvelope} loading={busy} color={form.color}>Create</PrimaryBtn>
+                <GhostBtn onClick={() => setShowAdd(false)}>Cancel</GhostBtn>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {envelopes?.length === 0 && !showAdd && (
+        <Empty icon="🫙" title="No savings goals yet" sub="Create an envelope for each thing you're saving toward — travel, emergency fund, new laptop, anything." />
+      )}
+
+      {envelopes?.map(e => {
+        const pct = Math.min(100, (e.saved / e.target_total) * 100);
+        const isContributing = contributing === e.id;
+        return (
+          <div key={e.id} style={{ borderRadius: 22, background: C.surface, border: `1px solid ${C.border}`, overflow: "hidden" }}>
+            <div style={{ padding: "18px 20px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
+                <div style={{ width: 52, height: 52, borderRadius: 16, background: (e.color || C.violet) + "18", border: `1.5px solid ${(e.color || C.violet) + "40"}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, flexShrink: 0 }}>
+                  {e.emoji}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <p style={{ color: C.paper, fontSize: 16, fontWeight: 600, margin: 0 }}>{e.name}</p>
+                  <p style={{ color: e.color || C.violet, fontSize: 12, margin: "2px 0 0", fontFamily: C.mono }}>{fmt(e.per_cycle)} / cycle</p>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <p style={{ fontFamily: C.mono, fontSize: 16, fontWeight: 700, color: e.color || C.violet, margin: 0 }}>{Math.round(pct)}%</p>
+                  <button onClick={() => { del(`/api/v1/finance/envelopes/${e.id}`).then(onRefresh); }}
+                    style={{ background: "none", border: "none", color: C.muted, fontSize: 11, cursor: "pointer", padding: "2px 0", fontFamily: C.sans }}>
+                    Remove
+                  </button>
+                </div>
+              </div>
+              <ProgressBar pct={pct} color={e.color || C.violet} />
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, marginBottom: 14 }}>
+                <p style={{ fontFamily: C.mono, fontSize: 13, color: C.sub, margin: 0 }}>{fmt(e.saved)} saved</p>
+                <p style={{ fontFamily: C.mono, fontSize: 13, color: C.sub, margin: 0 }}>goal {fmt(e.target_total)}</p>
+              </div>
+              {isContributing ? (
+                <div style={{ display: "flex", gap: 10 }}>
+                  <Input value={contribAmt} onChange={ev => setContribAmt(ev.target.value)} placeholder="Amount to add" type="number" autoFocus />
+                  <GhostBtn onClick={() => contribute(e.id)} color={e.color || C.violet}>Add</GhostBtn>
+                  <GhostBtn onClick={() => { setContributing(null); setContribAmt(""); }}>✕</GhostBtn>
+                </div>
+              ) : (
+                <GhostBtn onClick={() => setContributing(e.id)} color={e.color || C.violet}>+ Contribute</GhostBtn>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CARD TAB
+// ══════════════════════════════════════════════════════════════════════════════
+function CardTab({ card, summary, onRefresh, w }) {
+  const b = bp(w);
+  const [flipped,    setFlipped]    = useState(false);
+  const [showSpend,  setShowSpend]  = useState(false);
+  const [merchant,   setMerchant]   = useState("");
+  const [amount,     setAmount]     = useState("");
+  const [busy,       setBusy]       = useState(false);
+  const [toast,      setToast]      = useState(null);
+  const [err,        setErr]        = useState("");
+
+  if (!card) return <div style={{ display: "flex", flexDirection: "column", gap: 12 }}><Skeleton h={220} /><Skeleton h={56} /><Skeleton h={56} /></div>;
+
+  const expStr = `${String(card.expiry_month).padStart(2,"0")}/${String(card.expiry_year).slice(-2)}`;
+  const numStr = card.number
+    ? `${card.number.slice(0,4)} ${card.number.slice(4,8)} ${card.number.slice(8,12)} ${card.number.slice(12)}`
+    : "**** **** **** ****";
+
+  const freeze = async () => {
+    await post(`/api/v1/finance/card/${card.id}/freeze`, {});
+    onRefresh();
+  };
+
+  const spend = async () => {
+    if (!merchant.trim() || !parseFloat(amount)) { setErr("Fill in both fields."); return; }
+    setBusy(true); setErr("");
+    try {
+      await post(`/api/v1/finance/card/${card.id}/spend`, { merchant, amount: parseFloat(amount) });
+      setToast(`${fmt(parseFloat(amount))} logged at ${merchant}`);
+      setMerchant(""); setAmount(""); setShowSpend(false); onRefresh();
+      setTimeout(() => setToast(null), 3000);
+    } catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const cardW = Math.min(420, w - 40);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, alignItems: "center" }}>
+
+      {/* Toast */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+            style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", zIndex: 200, background: C.greenBg, border: `1px solid ${C.greenBdr}`, borderRadius: 16, padding: "12px 20px", color: C.green, fontWeight: 600, fontSize: 14, whiteSpace: "nowrap", boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}>
+            ✓ {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Virtual card — 3D flip */}
+      <div style={{ width: cardW, perspective: 1000, cursor: "pointer" }} onClick={() => setFlipped(f => !f)}>
+        <motion.div animate={{ rotateY: flipped ? 180 : 0 }} transition={{ type: "spring", damping: 22, stiffness: 180 }}
+          style={{ transformStyle: "preserve-3d", position: "relative", height: Math.round(cardW * 0.6) }}>
+
+          {/* Front */}
+          <div style={{
+            position: "absolute", inset: 0, backfaceVisibility: "hidden", borderRadius: 24,
+            background: card.is_frozen
+              ? "linear-gradient(145deg, #111520, #0a0e18)"
+              : "linear-gradient(145deg, #1C2D50 0%, #0E1A38 40%, #17233A 100%)",
+            border: `1.5px solid ${card.is_frozen ? "rgba(255,255,255,0.06)" : C.goldBdr}`,
+            boxShadow: card.is_frozen ? "0 12px 40px rgba(0,0,0,0.5)" : `0 20px 60px rgba(0,0,0,0.6), 0 0 0 1px ${C.gold}15, inset 0 1px 0 ${C.gold}20`,
+            padding: "22px 26px", display: "flex", flexDirection: "column", justifyContent: "space-between", overflow: "hidden",
+          }}>
+            {card.is_frozen && (
+              <div style={{ position: "absolute", inset: 0, borderRadius: 24, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }}>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 32, marginBottom: 6 }}>❄️</div>
+                  <p style={{ fontFamily: C.mono, fontSize: 14, color: C.sub, letterSpacing: "0.2em", margin: 0 }}>FROZEN</p>
+                </div>
+              </div>
+            )}
+            {/* Shimmer */}
+            <div style={{ position: "absolute", inset: 0, borderRadius: 24, background: "linear-gradient(135deg, rgba(255,255,255,0.04) 0%, transparent 50%, rgba(255,255,255,0.02) 100%)", pointerEvents: "none" }} />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <p style={{ fontFamily: C.mono, fontSize: 9, color: C.gold, letterSpacing: "0.22em", margin: 0, opacity: 0.9 }}>NOVAPAY</p>
+                <p style={{ fontSize: 14, fontWeight: 700, color: C.paper, margin: "3px 0 0", letterSpacing: "0.04em" }}>Finance OS</p>
+              </div>
+              <div style={{ width: 40, height: 30, borderRadius: 6, background: `linear-gradient(135deg, ${C.gold}dd, ${C.gold}88)`, border: `1px solid ${C.gold}90` }} />
+            </div>
+            <div>
+              <p style={{ fontFamily: C.mono, fontSize: b.xs ? 13 : 15, color: C.paper, letterSpacing: "0.18em", margin: "0 0 14px" }}>{numStr}</p>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+                <div>
+                  <p style={{ fontFamily: C.mono, fontSize: 8, color: C.gold, letterSpacing: "0.12em", margin: "0 0 3px", opacity: 0.8 }}>FREE BALANCE</p>
+                  <p style={{ fontFamily: C.mono, fontSize: b.xs ? 13 : 15, fontWeight: 700, color: C.paper, margin: 0 }}>{fmt(summary?.free_balance || 0)}</p>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <p style={{ fontFamily: C.mono, fontSize: 8, color: C.gold, letterSpacing: "0.12em", margin: "0 0 3px", opacity: 0.8 }}>EXPIRES</p>
+                  <p style={{ fontFamily: C.mono, fontSize: b.xs ? 13 : 15, fontWeight: 600, color: C.paper, margin: 0 }}>{expStr}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Back */}
+          <div style={{
+            position: "absolute", inset: 0, backfaceVisibility: "hidden", transform: "rotateY(180deg)",
+            borderRadius: 24, background: "linear-gradient(145deg, #1C2D50, #0E1A38)",
+            border: `1.5px solid ${C.goldBdr}`, overflow: "hidden",
+          }}>
+            <div style={{ height: 50, background: "#000", marginTop: "22%" }} />
+            <div style={{ padding: "16px 26px" }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                <div style={{ background: "rgba(255,255,255,0.08)", padding: "6px 14px", borderRadius: 6 }}>
+                  <p style={{ fontFamily: C.mono, fontSize: 16, color: C.paper, margin: 0, letterSpacing: "0.1em" }}>{card.cvv}</p>
+                </div>
+              </div>
+              <p style={{ color: C.sub, fontSize: 11, lineHeight: 1.6, margin: 0 }}>
+                Virtual spending tracker. Not a real card network. Logs your real-world spending against your free balance.
+              </p>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+      <p style={{ fontFamily: C.mono, fontSize: 10, color: C.muted, textAlign: "center" }}>Tap to flip · CVV on back</p>
+
+      {/* Card actions */}
+      <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 10 }}>
+        <PrimaryBtn onClick={() => { setShowSpend(v => !v); setErr(""); }}>
+          💳 Log a spend
+        </PrimaryBtn>
+        <PrimaryBtn onClick={freeze} color={card.is_frozen ? C.green : C.red}>
+          {card.is_frozen ? "❄️ Unfreeze card" : "🔒 Freeze card"}
+        </PrimaryBtn>
+      </div>
+
+      {/* Spend form */}
+      <AnimatePresence>
+        {showSpend && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} style={{ width: "100%", overflow: "hidden" }}>
+            <div style={{ borderRadius: 22, background: C.card, border: `1px solid ${C.borderHi}`, padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
+              <p style={{ fontFamily: C.mono, fontSize: 10, color: C.gold, letterSpacing: "0.1em", margin: 0 }}>LOG SPEND · DEDUCTS FROM FREE BALANCE</p>
+              <Input value={merchant} onChange={e => setMerchant(e.target.value)} placeholder="Where? (merchant name)" />
+              <Input value={amount} onChange={e => setAmount(e.target.value)} placeholder="Amount" type="number" />
+              {err && <p style={{ color: C.red, fontSize: 13, margin: 0 }}>{err}</p>}
+              <PrimaryBtn onClick={spend} loading={busy}>Confirm spend</PrimaryBtn>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Card stats */}
+      <div style={{ width: "100%", borderRadius: 20, background: C.surface, border: `1px solid ${C.border}`, overflow: "hidden" }}>
+        {[
+          { label: "Card number", value: `···· ${card.last4}`, color: C.paper },
+          { label: "Spent today",  value: fmt(card.spent_today), color: card.spent_today > 0 ? C.red : C.sub },
+          { label: "Status",       value: card.is_frozen ? "FROZEN" : "ACTIVE", color: card.is_frozen ? C.sub : C.green },
+        ].map((r, i) => (
+          <div key={r.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: i < 2 ? `1px solid ${C.border}` : "none" }}>
+            <p style={{ color: C.sub, fontSize: 14, margin: 0 }}>{r.label}</p>
+            <p style={{ fontFamily: C.mono, fontSize: 14, fontWeight: 600, color: r.color, margin: 0 }}>{r.value}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ══════════════════════════════════════════════════════════════════════════════
+const Fintech = ({ onClose }) => {
+  const [tab,       setTab]       = useState("overview");
+  const [summary,   setSummary]   = useState(null);
+  const [timeline,  setTimeline]  = useState(null);
+  const [bills,     setBills]     = useState([]);
+  const [schedules, setSchedules] = useState([]);
+  const [envelopes, setEnvelopes] = useState([]);
+  const [card,      setCard]      = useState(null);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState(null);
+  const w = useWidth();
+  const b = bp(w);
 
   const load = useCallback(async () => {
-    setLoading(true);
     try {
-      const data = await transactionsAPI.list();
-      const list = Array.isArray(data) ? data : data?.items ?? [];
-      setTxns(list);
-      setTotal(list.filter(t => t.status === "success" && t.direction === "debit").reduce((s, t) => s + Number(t.amount), 0));
-    } catch {}
-    setLoading(false);
+      const [sum, tl, bl, sc, env, cd] = await Promise.all([
+        get("/api/v1/finance/summary"),
+        get("/api/v1/finance/timeline"),
+        get("/api/v1/finance/bills"),
+        get("/api/v1/finance/schedules"),
+        get("/api/v1/finance/envelopes"),
+        get("/api/v1/finance/card"),
+      ]);
+      setSummary(sum); setTimeline(tl); setBills(bl);
+      setSchedules(sc); setEnvelopes(env); setCard(cd);
+      setError(null);
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.14em", color: C.gold }}>TRANSACTIONS</div>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={load}
-          style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(255,255,255,0.05)",
-            border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center",
-            cursor: "pointer", color: C.muted }}>
-          <Ico d={ICONS.refresh} size={13} />
-        </motion.button>
-      </div>
-      <div style={{ borderRadius: 14, padding: "16px 18px",
-        background: `linear-gradient(135deg, ${C.gold}18, ${C.gold}08)`,
-        border: `1px solid ${C.gold}33`,
-        display: "flex", justifyContent: "space-between" }}>
-        <div>
-          <div style={{ fontSize: 10, color: C.gold, letterSpacing: "0.1em", marginBottom: 4 }}>TOTAL SPENT</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", fontFamily: "monospace" }}>
-            {wallet?.currency || "CAD"} <BalanceCounter value={total} />
-          </div>
-        </div>
-        <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 10, color: C.muted, letterSpacing: "0.1em", marginBottom: 4 }}>TRANSACTIONS</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: "#fff" }}>{txns.length}</div>
-        </div>
-      </div>
+  const TABS = [
+    { id: "overview",  icon: "◉", label: b.sm ? "" : "Overview"  },
+    { id: "timeline",  icon: "⟿", label: b.sm ? "" : "Timeline"  },
+    { id: "bills",     icon: "📋", label: b.sm ? "" : "Bills"     },
+    { id: "envelopes", icon: "🫙", label: b.sm ? "" : "Save"      },
+    { id: "card",      icon: "💳", label: b.sm ? "" : "Card"      },
+  ];
 
-      {loading ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {[1,2,3].map(i => (
-            <div key={i} style={{ height: 60, borderRadius: 12,
-              background: "rgba(255,255,255,0.04)", border: `1px solid ${C.border}` }} />
-          ))}
-        </div>
-      ) : txns.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "40px 0", color: C.muted, fontSize: 13 }}>
-          No transactions yet — send a payment or top up your wallet to get started.
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {txns.map((t, i) => (
-            <motion.div key={t.id || i}
-              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.04 }}
-              style={{ padding: "12px 16px", borderRadius: 12,
-                background: "rgba(255,255,255,0.03)", border: `1px solid ${C.border}`,
-                display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                <div style={{ width: 38, height: 38, borderRadius: 10,
-                  background: t.status === "success" ? C.green + "18" : t.status === "pending" ? C.gold + "18" : C.red + "18",
-                  border: `1px solid ${t.status === "success" ? C.green + "33" : t.status === "pending" ? C.gold + "33" : C.red + "33"}`,
-                  display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <Ico d={t.status === "success" ? (t.direction === "credit" ? ICONS.receive : ICONS.arrow) : ICONS.error}
-                    size={16} color={t.status === "success" ? C.green : t.status === "pending" ? C.gold : C.red} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{t.merchant}</div>
-                  <div style={{ fontSize: 10, color: C.muted }}>
-                    {t.created_at?.slice(0, 10)} · {(t.method || "wallet").toUpperCase()}
-                    {t.decline_reason ? ` · ${t.decline_reason.replace(/_/g, " ")}` : ""}
-                  </div>
-                </div>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 14, fontWeight: 700,
-                  color: t.status === "success" ? (t.direction === "credit" ? C.green : "#fff") : C.red,
-                  fontFamily: "monospace" }}>
-                  {t.direction === "credit" ? "+" : t.status === "failed" ? "–" : ""}{t.currency} {fmt(t.amount)}
-                </div>
-                <StatusBadge status={t.status} />
-              </div>
-            </motion.div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Cards tab — real cards from backend, add new with a real form ────────────
-function CardsTab({ wallet, cards, onCardsChanged }) {
-  const [activeCard, setActiveCard] = useState(0);
-  const [flipped,    setFlipped]    = useState(false);
-  const [showAdd,    setShowAdd]    = useState(false);
-  const [form,       setForm]       = useState({ label: "", last4: "", expiry_month: "", expiry_year: "", credit_limit: "" });
-  const [saving,     setSaving]     = useState(false);
-  const [error,      setError]      = useState(null);
-
-  const card = cards[activeCard];
-  const usePct = card ? ((Number(card.spent) / Number(card.credit_limit)) * 100 || 0).toFixed(0) : 0;
-
-  const handleAdd = async () => {
-    if (!form.label || form.last4.length !== 4 || !form.expiry_month || !form.expiry_year || !form.credit_limit) {
-      setError("Fill in all fields — last 4 digits must be exactly 4 numbers.");
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      await walletAPI.addCard({
-        ...form,
-        last4: form.last4,
-        expiry_month: parseInt(form.expiry_month, 10),
-        expiry_year: parseInt(form.expiry_year, 10),
-        credit_limit: parseFloat(form.credit_limit),
-        currency: wallet?.currency || "CAD",
-        is_primary: cards.length === 0,
-      });
-      setShowAdd(false);
-      setForm({ label: "", last4: "", expiry_month: "", expiry_year: "", credit_limit: "" });
-      onCardsChanged();
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (cards.length === 0 && !showAdd) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "40px 0" }}>
-        <Ico d={ICONS.card} size={36} color={C.muted} />
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: "#fff", marginBottom: 4 }}>No cards yet</div>
-          <div style={{ fontSize: 12, color: C.muted }}>Add a card to track spend separately from your wallet balance.</div>
-        </div>
-        <motion.button whileTap={{ scale: 0.97 }} onClick={() => setShowAdd(true)}
-          style={{ padding: "12px 24px", borderRadius: 14, background: `linear-gradient(135deg, ${C.gold}, #a07830)`,
-            border: "none", color: "#000", fontWeight: 700, fontSize: 13, cursor: "pointer",
-            display: "flex", alignItems: "center", gap: 6 }}>
-          <Ico d={ICONS.plus} size={14} color="#000" /> Add Card
-        </motion.button>
-      </div>
-    );
-  }
-
-  if (showAdd) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <BackButton onClick={() => setShowAdd(false)} />
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.14em", color: C.gold }}>ADD CARD</div>
-        </div>
-        {[
-          { key: "label",        placeholder: "Card label, e.g. NovaPay Platinum" },
-          { key: "last4",        placeholder: "Last 4 digits", maxLength: 4 },
-          { key: "expiry_month", placeholder: "Expiry month (1-12)" },
-          { key: "expiry_year",  placeholder: "Expiry year, e.g. 2030" },
-          { key: "credit_limit", placeholder: "Credit limit" },
-        ].map(f => (
-          <input key={f.key}
-            value={form[f.key]}
-            maxLength={f.maxLength}
-            onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))}
-            placeholder={f.placeholder}
-            style={{ padding: "12px 14px", borderRadius: 10, background: "rgba(255,255,255,0.05)",
-              border: `1px solid ${C.border}`, color: "#fff", fontSize: 13, outline: "none" }} />
-        ))}
-        {error && <p style={{ color: C.red, fontSize: 12 }}>{error}</p>}
-        <motion.button whileTap={{ scale: 0.97 }} onClick={handleAdd} disabled={saving}
-          style={{ padding: "15px 0", borderRadius: 14, background: `linear-gradient(135deg, ${C.gold}, #a07830)`,
-            border: "none", color: "#000", fontWeight: 700, fontSize: 14, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
-          {saving ? "SAVING…" : "SAVE CARD"}
-        </motion.button>
-      </div>
-    );
-  }
+  const free = summary?.free_balance ?? 0;
+  const freeColor = free > 500 ? C.green : free > 100 ? C.gold : C.red;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.14em", color: C.gold }}>MY CARDS</div>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => setShowAdd(true)}
-          style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(255,255,255,0.05)",
-            border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center",
-            cursor: "pointer", color: C.gold }}>
-          <Ico d={ICONS.plus} size={13} />
-        </motion.button>
-      </div>
-      <CreditCard card={card} flipped={flipped} onFlip={() => setFlipped(f => !f)} />
-      <div style={{ fontSize: 10, color: C.sub, textAlign: "center", marginTop: -8 }}>Tap card to flip</div>
-      <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-        {cards.map((_, i) => (
-          <motion.button key={i} whileTap={{ scale: 0.9 }}
-            onClick={() => { setActiveCard(i); setFlipped(false); }}
-            style={{ width: i === activeCard ? 24 : 8, height: 8, borderRadius: 4,
-              background: i === activeCard ? C.gold : "rgba(255,255,255,0.2)",
-              border: "none", cursor: "pointer", transition: "all 0.2s" }} />
-        ))}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        {[
-          { label: "AVAILABLE",     value: `${wallet?.currency || "CAD"} ${fmt(Number(card.credit_limit) - Number(card.spent))}`, color: C.green },
-          { label: "CREDIT LIMIT",  value: `${wallet?.currency || "CAD"} ${fmt(card.credit_limit)}`,  color: C.gold },
-          { label: "SPENT",         value: `${wallet?.currency || "CAD"} ${fmt(card.spent)}`,          color: "#fff" },
-          { label: "UTILIZATION",   value: `${usePct}%`,                                                color: usePct > 70 ? C.red : C.gold },
-        ].map(s => (
-          <div key={s.label} style={{ padding: "14px", borderRadius: 12,
-            background: "rgba(255,255,255,0.03)", border: `1px solid ${C.border}` }}>
-            <div style={{ fontSize: 9, color: C.muted, letterSpacing: "0.1em", marginBottom: 6 }}>{s.label}</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: s.color, fontFamily: "monospace" }}>{s.value}</div>
-          </div>
-        ))}
-      </div>
-      <div style={{ padding: "14px 16px", borderRadius: 12,
-        background: "rgba(255,255,255,0.03)", border: `1px solid ${C.border}` }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-          <span style={{ fontSize: 10, color: C.muted, letterSpacing: "0.1em" }}>CREDIT USAGE</span>
-          <span style={{ fontSize: 10, color: usePct > 70 ? C.red : C.gold, fontWeight: 700 }}>{usePct}%</span>
-        </div>
-        <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,0.08)" }}>
-          <motion.div
-            initial={{ width: 0 }}
-            animate={{ width: `${usePct}%` }}
-            transition={{ duration: 1, ease: [0.16,1,0.3,1] }}
-            style={{ height: "100%", borderRadius: 3,
-              background: usePct > 70 ? `linear-gradient(90deg, ${C.red}, #ff6b6b)` : `linear-gradient(90deg, ${C.gold}, ${C.goldLight})` }} />
-        </div>
-      </div>
-    </div>
-  );
-}
+    <>
+      <style>{`
+        @keyframes nova-spin  { to { transform: rotate(360deg); } }
+        @keyframes nova-pulse { 0%,100% { opacity:.4; } 50% { opacity:.75; } }
+        * { -webkit-tap-highlight-color: transparent; }
+        ::-webkit-scrollbar { display: none; }
+      `}</style>
 
-// ─── Top-up modal — the only legitimate way balance increases ─────────────────
-function TopUpModal({ wallet, onClose, onDone }) {
-  const [amount,     setAmount]     = useState("");
-  const [topUpEmail, setTopUpEmail] = useState("");
-  const [saving,     setSaving]     = useState(false);
-  const [error,      setError]      = useState(null);
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        style={{
+          position: "fixed", inset: 0, bottom: "var(--taskbar-height, 52px)",
+          zIndex: 50, background: C.bg, fontFamily: C.sans,
+          display: "flex", flexDirection: "column", overflow: "hidden",
+        }}>
 
-  const handleTopUp = async () => {
-    const amt = parseFloat(amount);
-    if (!amt || amt <= 0) { setError("Enter a valid amount."); return; }
-    setSaving(true);
-    setError(null);
-    try {
-      await walletAPI.topUp({ amount: amt, currency: wallet?.currency || "CAD", method: "manual", email: topUpEmail || undefined });
-      onDone();
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      style={{ position: "absolute", inset: 0, zIndex: 10, background: "rgba(0,0,0,0.6)",
-        display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
-      onClick={onClose}
-    >
-      <motion.div
-        initial={{ scale: 0.94, y: 16 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.94, y: 16 }}
-        onClick={e => e.stopPropagation()}
-        style={{ width: "100%", maxWidth: 320, borderRadius: 18, background: C.surface,
-          border: `1px solid ${C.border}`, padding: 22 }}
-      >
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.14em", color: C.gold, marginBottom: 16 }}>
-          TOP UP WALLET
-        </div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
-          <span style={{ fontSize: 20, color: C.muted, marginRight: 4 }}>{wallet?.currency || "CAD"}</span>
-          <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
-            placeholder="0.00" autoFocus
-            style={{ background: "none", border: "none", outline: "none",
-              fontSize: 40, fontWeight: 800, color: "#fff", width: 140, textAlign: "center",
-              fontFamily: "monospace" }} />
-        </div>
-        {error && <p style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>{error}</p>}
-        <input
-          type="email"
-          value={topUpEmail}
-          onChange={e => setTopUpEmail(e.target.value)}
-          placeholder="Your email — get a top-up receipt (optional)"
-          style={{ width: "100%", padding: "10px 14px", borderRadius: 10, marginBottom: 10,
-            background: "rgba(255,255,255,0.05)", border: `1px solid ${C.border}`,
-            color: "#fff", fontSize: 12, outline: "none", boxSizing: "border-box" }}
-        />
-        <motion.button whileTap={{ scale: 0.97 }} onClick={handleTopUp} disabled={saving}
-          style={{ width: "100%", padding: "14px 0", borderRadius: 12,
-            background: `linear-gradient(135deg, ${C.gold}, #a07830)`,
-            border: "none", color: "#000", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
-          {saving ? "PROCESSING…" : "ADD FUNDS"}
-        </motion.button>
-      </motion.div>
-    </motion.div>
-  );
-}
-
-// ─── Main component ───────────────────────────────────────────────────────────
-const Fintech = ({ onClose }) => {
-  const [tab,        setTab]        = useState("send");
-  const [wallet,     setWallet]     = useState(null);
-  const [cards,      setCards]      = useState([]);
-  const [loading,    setLoading]    = useState(true);
-  const [error,      setError]      = useState(null);
-  const [showTopUp,  setShowTopUp]  = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
-
-  const loadWallet = useCallback(async () => {
-    try {
-      const w = await walletAPI.get();
-      setWallet(w);
-    } catch (e) {
-      setError(e.message);
-    }
-  }, []);
-
-  const loadCards = useCallback(async () => {
-    try {
-      const c = await walletAPI.cards();
-      setCards(Array.isArray(c) ? c : []);
-    } catch (e) {
-      setError(e.message);
-    }
-  }, []);
-
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      await Promise.all([loadWallet(), loadCards()]);
-      setLoading(false);
-    })();
-  }, [loadWallet, loadCards]);
-
-  const handleWalletChanged = useCallback(() => {
-    loadWallet();
-    setRefreshKey(k => k + 1);
-  }, [loadWallet]);
-
-  const handleCardsChanged = useCallback(() => {
-    loadCards();
-  }, [loadCards]);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      style={{
-        position: "fixed", inset: 0, bottom: "var(--taskbar-height, 52px)",
-        zIndex: 50, background: C.bg,
-        display: "flex", flexDirection: "column",
-        fontFamily: "'SF Pro Display', '-apple-system', system-ui, sans-serif",
-        overflow: "hidden",
-      }}
-    >
-      {/* Header */}
-      <div style={{
-        padding: "16px 20px 14px", background: C.surface, borderBottom: `1px solid ${C.border}`,
-        display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 34, height: 34, borderRadius: 10,
-            background: `linear-gradient(135deg, ${C.gold}33, ${C.gold}11)`,
-            border: `1px solid ${C.gold}44`,
-            display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Ico d={ICONS.card} size={16} color={C.gold} />
-          </div>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 800, color: "#fff", letterSpacing: "0.02em" }}>NovaPay</div>
-            <div style={{ fontSize: 10, color: C.gold, letterSpacing: "0.1em" }}>YOUR REAL WALLET</div>
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <button onClick={() => setShowTopUp(true)}
-            style={{ background: "none", border: `1px solid ${C.gold}44`, borderRadius: 8,
-              padding: "4px 10px", color: C.gold, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>
-            + TOP UP
-          </button>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 9, color: C.muted, letterSpacing: "0.1em" }}>BALANCE</div>
-            <div style={{ fontSize: 15, fontWeight: 800, color: "#fff", fontFamily: "monospace" }}>
-              <span style={{ fontSize: 10, color: C.gold, marginRight: 2 }}>{wallet?.currency || "CAD"}</span>
-              {loading ? "···" : <BalanceCounter value={Number(wallet?.balance || 0)} />}
+        {/* ── Header ─────────────────────────────────────────────────────── */}
+        <div style={{
+          flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: `14px ${b.sm ? 16 : 20}px`, background: C.surface,
+          borderBottom: `1px solid ${C.border}`,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 11, background: C.goldBg, border: `1px solid ${C.goldBdr}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>
+              💳
+            </div>
+            <div>
+              <p style={{ fontSize: 15, fontWeight: 800, color: C.paper, margin: 0, letterSpacing: "-0.01em" }}>NovaPay</p>
+              <p style={{ fontSize: 10, color: C.gold, margin: 0, fontFamily: C.mono, letterSpacing: "0.1em", opacity: 0.8 }}>FINANCE OS</p>
             </div>
           </div>
-          <motion.button whileTap={{ scale: 0.88 }} onClick={onClose}
-            style={{ width: 34, height: 34, borderRadius: "50%",
-              background: "rgba(255,255,255,0.06)", border: `1px solid ${C.border}`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              cursor: "pointer", color: C.muted }}>
-            <Ico d={ICONS.close} size={15} />
-          </motion.button>
-        </div>
-      </div>
-
-      {error && (
-        <div style={{ padding: "10px 20px", background: C.red + "12", borderBottom: `1px solid ${C.red}33`,
-          color: C.red, fontSize: 12, flexShrink: 0 }}>
-          {error}
-        </div>
-      )}
-
-      {/* Tab bar */}
-      <div style={{ display: "flex", background: C.surface, borderBottom: `1px solid ${C.border}`, flexShrink: 0, padding: "0 8px" }}>
-        {TABS.map(t => {
-          const active = tab === t.id;
-          return (
-            <motion.button key={t.id} whileTap={{ scale: 0.95 }}
-              onClick={() => setTab(t.id)}
-              style={{ flex: 1, padding: "12px 8px 10px", display: "flex", flexDirection: "column",
-                alignItems: "center", gap: 4, background: "none", border: "none",
-                cursor: "pointer", position: "relative" }}>
-              <Ico d={t.icon} size={17} color={active ? C.gold : C.sub} sw={active ? 2 : 1.5} />
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", color: active ? C.gold : C.sub }}>
-                {t.label.toUpperCase()}
-              </span>
-              {active && (
-                <motion.div layoutId="tabIndicator"
-                  style={{ position: "absolute", bottom: 0, left: "20%", right: "20%",
-                    height: 2, borderRadius: 1, background: `linear-gradient(90deg, ${C.gold}, ${C.goldLight})` }} />
-              )}
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {summary && (
+              <div style={{ textAlign: "right" }}>
+                <p style={{ fontFamily: C.mono, fontSize: 9, color: C.muted, letterSpacing: "0.08em", margin: 0 }}>FREE</p>
+                <p style={{ fontFamily: C.mono, fontSize: 16, fontWeight: 800, color: freeColor, margin: 0, fontVariantNumeric: "tabular-nums" }}>
+                  {fmt(free)}
+                </p>
+              </div>
+            )}
+            <motion.button whileTap={{ scale: 0.88 }} onClick={onClose}
+              style={{ width: 36, height: 36, borderRadius: "50%", background: C.raised, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.sub, fontSize: 18, flexShrink: 0 }}>
+              ×
             </motion.button>
-          );
-        })}
-      </div>
+          </div>
+        </div>
 
-      {/* Tab content */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "20px", scrollbarWidth: "none", position: "relative" }}>
-        <AnimatePresence mode="wait">
-          <motion.div key={tab}
-            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.18 }}>
-            {tab === "send"    && <SendTab wallet={wallet} cards={cards} onWalletChanged={handleWalletChanged} />}
-            {tab === "request" && <RequestTab wallet={wallet} onWalletChanged={handleWalletChanged} />}
-            {tab === "history" && <HistoryTab key={refreshKey} wallet={wallet} />}
-            {tab === "cards"   && <CardsTab wallet={wallet} cards={cards} onCardsChanged={handleCardsChanged} />}
-          </motion.div>
-        </AnimatePresence>
+        {/* Error banner */}
+        {error && (
+          <div style={{ flexShrink: 0, padding: "10px 20px", background: C.redBg, borderBottom: `1px solid ${C.redBdr}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <p style={{ color: C.red, fontSize: 13, margin: 0 }}>{error} — is the backend running?</p>
+            <button onClick={load} style={{ background: "none", border: "none", color: C.red, fontSize: 12, cursor: "pointer", textDecoration: "underline", fontFamily: C.sans }}>Retry</button>
+          </div>
+        )}
 
-        <AnimatePresence>
-          {showTopUp && (
-            <TopUpModal
-              wallet={wallet}
-              onClose={() => setShowTopUp(false)}
-              onDone={() => { setShowTopUp(false); handleWalletChanged(); }}
-            />
-          )}
-        </AnimatePresence>
-      </div>
+        {/* ── Tab content ─────────────────────────────────────────────────── */}
+        <div style={{ flex: 1, overflowY: "auto", padding: `20px ${b.sm ? 14 : 20}px 24px`, WebkitOverflowScrolling: "touch" }}>
+          <div style={{ maxWidth: 520, margin: "0 auto" }}>
+            <AnimatePresence mode="wait">
+              <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }}>
+                {tab === "overview"  && <OverviewTab  summary={summary} envelopes={envelopes} w={w} />}
+                {tab === "timeline"  && <TimelineTab  timeline={timeline} />}
+                {tab === "bills"     && <BillsTab     bills={bills} schedules={schedules} onRefresh={load} />}
+                {tab === "envelopes" && <EnvelopesTab envelopes={envelopes} onRefresh={load} />}
+                {tab === "card"      && <CardTab      card={card} summary={summary} onRefresh={load} w={w} />}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        </div>
 
-      {/* Footer */}
-      <div style={{
-        padding: "10px 20px", borderTop: `1px solid ${C.border}`, background: C.surface,
-        display: "flex", alignItems: "center", justifyContent: "center", gap: 6, flexShrink: 0,
-      }}>
-        <Ico d={ICONS.lock} size={11} color={C.muted} />
-        <span style={{ fontSize: 10, color: C.sub, letterSpacing: "0.08em" }}>
-          REAL LEDGER · NOT A BANK · YOUR DATA, YOUR DATABASE
-        </span>
-      </div>
-    </motion.div>
+        {/* ── Bottom nav — thumb zone ──────────────────────────────────────── */}
+        <div style={{
+          flexShrink: 0, display: "flex", background: C.surface,
+          borderTop: `1px solid ${C.border}`,
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        }}>
+          {TABS.map(t => {
+            const active = tab === t.id;
+            return (
+              <motion.button key={t.id} whileTap={{ scale: 0.88 }} onClick={() => setTab(t.id)}
+                style={{
+                  flex: 1, padding: "12px 4px 14px", minHeight: 56,
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3,
+                  background: "none", border: "none", cursor: "pointer", position: "relative",
+                  WebkitTapHighlightColor: "transparent",
+                }}>
+                {active && (
+                  <motion.div layoutId="tab-pill"
+                    style={{ position: "absolute", top: 0, left: "20%", right: "20%", height: 2, borderRadius: 1, background: C.gold }} />
+                )}
+                <span style={{ fontSize: b.sm ? 22 : 18, lineHeight: 1 }}>{t.icon}</span>
+                {!b.sm && <span style={{ fontSize: 10, fontWeight: active ? 700 : 500, color: active ? C.gold : C.muted, fontFamily: C.mono, letterSpacing: "0.04em" }}>{t.label.toUpperCase()}</span>}
+              </motion.button>
+            );
+          })}
+        </div>
+      </motion.div>
+    </>
   );
 };
 
