@@ -842,21 +842,56 @@ const Preview = React.forwardRef(({ resume, style, editingId, onEditSection, onE
 
 Preview.displayName = "Preview";
 
+// ── Width hook ────────────────────────────────────────────────────────────────
+function useWindowWidth() {
+  const [w, setW] = useState(1024);
+  useEffect(() => {
+    const fn = () => setW(window.innerWidth);
+    fn();
+    window.addEventListener("resize", fn);
+    return () => window.removeEventListener("resize", fn);
+  }, []);
+  return w;
+}
+
 // ── Main Resume component ─────────────────────────────────────────────────────
 const Resume = ({ onClose }) => {
   const [activeResume, setActiveResume] = useState("it");
   const [resumeData,   setResumeData]   = useState(() => JSON.parse(JSON.stringify(RESUMES["it"])));
   const [style,        setStyle]        = useState({ font: "calibri", fontSize: 11, lineHeight: 1.4, accent: "navy" });
-  const [panel,        setPanel]        = useState("style"); // style | resumes
+  const [panel,        setPanel]        = useState("style");
   const [downloading,  setDownloading]  = useState(null);
-  const previewRef = useRef(null);
+  const [sidebarOpen,  setSidebarOpen]  = useState(true);
+  const [scale,        setScale]        = useState(1);
+  const previewRef    = useRef(null);
+  const canvasRef     = useRef(null);
+  const vw            = useWindowWidth();
+  const isMobile      = vw < 700;
+  // On mobile, sidebar slides over; on desktop it's always visible
+  const sidebarW      = 224;
+  // A4 paper = 816px wide at 96dpi
+  const A4W           = 816;
+
+  // Compute scale to fit preview in available canvas width
+  useEffect(() => {
+    const compute = () => {
+      if (!canvasRef.current) return;
+      const available = canvasRef.current.clientWidth - 40; // 20px padding each side
+      setScale(Math.min(1, Math.max(0.3, available / A4W)));
+    };
+    compute();
+    const ro = window.ResizeObserver ? new ResizeObserver(compute) : null;
+    if (ro && canvasRef.current) ro.observe(canvasRef.current);
+    window.addEventListener("resize", compute);
+    return () => { ro?.disconnect(); window.removeEventListener("resize", compute); };
+  }, [sidebarOpen, isMobile]);
 
   const switchResume = (key) => {
     setActiveResume(key);
     setResumeData(JSON.parse(JSON.stringify(RESUMES[key])));
+    if (isMobile) setSidebarOpen(false);
   };
 
-  // Edit handlers
   const onEditContact = useCallback((field, val) => {
     setResumeData(r => ({ ...r, contact: { ...r.contact, [field]: val } }));
   }, []);
@@ -873,10 +908,8 @@ const Resume = ({ onClose }) => {
       ...r,
       sections: r.sections.map(s => {
         if (sectionId && s.id === sectionId) {
-          // job bullet
           const jobs = s.jobs.map((j, ji) => ji === jobIdx
-            ? { ...j, bullets: j.bullets.map((b, bi) => bi === idx ? val : b) }
-            : j);
+            ? { ...j, bullets: j.bullets.map((b, bi) => bi === idx ? val : b) } : j);
           return { ...s, jobs };
         }
         if (s.id === key && s.items) {
@@ -891,8 +924,7 @@ const Resume = ({ onClose }) => {
     setResumeData(r => ({
       ...r,
       sections: r.sections.map(s => s.id === sectionId
-        ? { ...s, jobs: s.jobs.map((j, ji) => ji === jobIdx ? { ...j, [field]: val } : j) }
-        : s),
+        ? { ...s, jobs: s.jobs.map((j, ji) => ji === jobIdx ? { ...j, [field]: val } : j) } : s),
     }));
   }, []);
 
@@ -900,8 +932,7 @@ const Resume = ({ onClose }) => {
     setResumeData(r => ({
       ...r,
       sections: r.sections.map(s => s.id === sectionId
-        ? { ...s, degrees: s.degrees.map((d, di) => di === degIdx ? { ...d, [field]: val } : d) }
-        : s),
+        ? { ...s, degrees: s.degrees.map((d, di) => di === degIdx ? { ...d, [field]: val } : d) } : s),
     }));
   }, []);
 
@@ -922,6 +953,106 @@ const Resume = ({ onClose }) => {
     </p>
   );
 
+  const SidebarContent = () => (
+    <>
+      <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+        {[{ id: "resumes", icon: ICONS.doc, label: "Templates" },
+          { id: "style", icon: ICONS.palette, label: "Style" }].map(t => (
+          <button key={t.id} onClick={() => setPanel(t.id)}
+            style={{ flex: 1, padding: "11px 6px", display: "flex", alignItems: "center",
+              justifyContent: "center", gap: 4, background: "none", border: "none", cursor: "pointer",
+              borderBottom: panel === t.id ? `2px solid ${T.gold}` : "2px solid transparent",
+              color: panel === t.id ? T.gold : T.sub, fontSize: 10, fontWeight: 700, fontFamily: T.mono }}>
+            <Ic d={t.icon} size={12} color={panel === t.id ? T.gold : T.sub} />
+            {t.label.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ padding: "14px 12px", flex: 1, overflowY: "auto", scrollbarWidth: "none" }}>
+        {panel === "resumes" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            <Label>SELECT RESUME</Label>
+            {Object.entries(RESUMES).map(([key, r]) => (
+              <motion.button key={key} whileTap={{ scale: 0.97 }}
+                onClick={() => switchResume(key)}
+                style={{ padding: "10px 11px", borderRadius: 11, textAlign: "left",
+                  background: activeResume === key ? T.goldBg : T.surface,
+                  border: `1px solid ${activeResume === key ? T.goldBr : T.border}`,
+                  cursor: "pointer", width: "100%" }}>
+                <p style={{ color: activeResume === key ? T.gold : T.text, fontSize: 12, fontWeight: 600, margin: 0 }}>{r.label}</p>
+                <p style={{ color: T.sub, fontSize: 10, margin: "2px 0 0", fontFamily: T.mono, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.title}</p>
+              </motion.button>
+            ))}
+            <div style={{ marginTop: 8, padding: "9px 11px", borderRadius: 11, background: T.surface, border: `1px solid ${T.border}` }}>
+              <p style={{ fontFamily: T.mono, fontSize: 9, color: T.faint, margin: "0 0 4px", letterSpacing: "0.08em" }}>TIP</p>
+              <p style={{ color: T.sub, fontSize: 11, lineHeight: 1.5, margin: 0 }}>Click any text in the preview to edit it inline.</p>
+            </div>
+          </div>
+        )}
+
+        {panel === "style" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <Label>FONT FAMILY</Label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {FONTS.map(f => (
+                  <button key={f.id} onClick={() => setStyle(s => ({ ...s, font: f.id }))}
+                    style={{ padding: "7px 10px", borderRadius: 8, textAlign: "left",
+                      background: style.font === f.id ? T.goldBg : T.surface,
+                      border: `1px solid ${style.font === f.id ? T.goldBr : T.border}`,
+                      color: style.font === f.id ? T.gold : T.sub, fontSize: 12,
+                      fontFamily: f.css, cursor: "pointer" }}>
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <Label>FONT SIZE: {style.fontSize}pt</Label>
+              <input type="range" min={9} max={13} step={0.5} value={style.fontSize}
+                onChange={e => setStyle(s => ({ ...s, fontSize: parseFloat(e.target.value) }))}
+                style={{ width: "100%", accentColor: T.gold }} />
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ fontFamily: T.mono, fontSize: 9, color: T.faint }}>9pt</span>
+                <span style={{ fontFamily: T.mono, fontSize: 9, color: T.faint }}>13pt</span>
+              </div>
+            </div>
+
+            <div>
+              <Label>LINE SPACING: {style.lineHeight}×</Label>
+              <input type="range" min={1.1} max={1.8} step={0.05} value={style.lineHeight}
+                onChange={e => setStyle(s => ({ ...s, lineHeight: parseFloat(e.target.value) }))}
+                style={{ width: "100%", accentColor: T.gold }} />
+            </div>
+
+            <div>
+              <Label>ACCENT COLOR</Label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
+                {ACCENTS.map(a => (
+                  <button key={a.id} onClick={() => setStyle(s => ({ ...s, accent: a.id }))}
+                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 8px",
+                      borderRadius: 8, background: style.accent === a.id ? T.goldBg : T.surface,
+                      border: `1px solid ${style.accent === a.id ? T.goldBr : T.border}`,
+                      cursor: "pointer" }}>
+                    <div style={{ width: 13, height: 13, borderRadius: 3, background: a.hex, flexShrink: 0 }} />
+                    <span style={{ color: style.accent === a.id ? T.gold : T.sub, fontSize: 11 }}>{a.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+
+  // A4 paper scaled height for the canvas container
+  const A4H = 1056; // 11 inches at 96dpi
+  const scaledW = Math.round(A4W * scale);
+  const scaledH = Math.round(A4H * scale);
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       style={{ position: "fixed", inset: 0, bottom: "var(--taskbar-height,52px)",
@@ -932,173 +1063,120 @@ const Resume = ({ onClose }) => {
         @media print {
           body * { visibility: hidden; }
           #nova-resume-print, #nova-resume-print * { visibility: visible; }
-          #nova-resume-print { position: fixed; left: 0; top: 0; }
+          #nova-resume-print { position: fixed; left: 0; top: 0; width: 100%; }
         }
       `}</style>
 
       {/* ── Top bar ── */}
       <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "12px 18px", background: T.panel, borderBottom: `1px solid ${T.border}` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Ic d={ICONS.doc} size={16} color={T.gold} />
-          <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Resume Studio</span>
-          <span style={{ fontFamily: T.mono, fontSize: 9, color: T.faint, marginLeft: 4 }}>
-            {resumeData.contact.name} · {resumeData.contact.title}
-          </span>
+        padding: "11px 14px", background: T.panel, borderBottom: `1px solid ${T.border}`,
+        gap: 8, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
+          {/* Sidebar toggle button */}
+          <motion.button whileTap={{ scale: 0.9 }}
+            onClick={() => setSidebarOpen(v => !v)}
+            style={{ width: 32, height: 32, borderRadius: 9, background: sidebarOpen ? T.goldBg : T.raised,
+              border: `1px solid ${sidebarOpen ? T.goldBr : T.border}`,
+              display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
+            <Ic d={ICONS.settings} size={14} color={sidebarOpen ? T.gold : T.sub} />
+          </motion.button>
+          <Ic d={ICONS.doc} size={15} color={T.gold} />
+          <span style={{ fontSize: 13, fontWeight: 700, color: T.text, flexShrink: 0 }}>Resume Studio</span>
+          {!isMobile && (
+            <span style={{ fontFamily: T.mono, fontSize: 9, color: T.faint, overflow: "hidden",
+              textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {resumeData.contact.name} · {resumeData.contact.title}
+            </span>
+          )}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           <motion.button whileTap={{ scale: 0.94 }} onClick={handleDownloadDocx}
             disabled={!!downloading}
-            style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px",
+            style={{ display: "flex", alignItems: "center", gap: 5, padding: isMobile ? "7px 10px" : "8px 13px",
               borderRadius: 10, background: T.goldBg, border: `1px solid ${T.goldBr}`,
-              color: T.gold, fontSize: 12, fontWeight: 700, cursor: "pointer", minWidth: 100 }}>
-            {downloading === "docx" ? "Building…" : <><Ic d={ICONS.doc} size={13} color={T.gold} /> Word</>}
+              color: T.gold, fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+            {downloading === "docx" ? "…" : <><Ic d={ICONS.doc} size={12} color={T.gold} />{!isMobile && " Word"}</>}
           </motion.button>
           <motion.button whileTap={{ scale: 0.94 }} onClick={handleDownloadPdf}
             disabled={!!downloading}
-            style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px",
-              borderRadius: 10, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)",
-              color: "#E84545", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-            <Ic d={ICONS.pdf} size={13} color="#E84545" /> PDF
+            style={{ display: "flex", alignItems: "center", gap: 5, padding: isMobile ? "7px 10px" : "8px 13px",
+              borderRadius: 10, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.22)",
+              color: "#E84545", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+            <Ic d={ICONS.pdf} size={12} color="#E84545" />{!isMobile && " PDF"}
           </motion.button>
           <motion.button whileTap={{ scale: 0.88 }} onClick={onClose}
-            style={{ width: 34, height: 34, borderRadius: "50%", background: T.raised,
+            style={{ width: 32, height: 32, borderRadius: "50%", background: T.raised,
               border: `1px solid ${T.border}`, display: "flex", alignItems: "center",
-              justifyContent: "center", cursor: "pointer" }}>
+              justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
             <Ic d={ICONS.close} size={14} color={T.sub} />
           </motion.button>
         </div>
       </div>
 
-      {/* ── Body: sidebar + preview ── */}
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+      {/* ── Body ── */}
+      <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
 
-        {/* Sidebar */}
-        <div style={{ width: 240, flexShrink: 0, background: T.panel,
-          borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column",
-          overflowY: "auto", scrollbarWidth: "none" }}>
+        {/* Sidebar — slides in/out on mobile, always visible on desktop */}
+        <AnimatePresence>
+          {(!isMobile || sidebarOpen) && (
+            <motion.div
+              initial={isMobile ? { x: -sidebarW } : false}
+              animate={{ x: 0 }}
+              exit={{ x: -sidebarW }}
+              transition={{ type: "spring", damping: 28, stiffness: 300 }}
+              style={{
+                width: sidebarW, flexShrink: 0, background: T.panel,
+                borderRight: `1px solid ${T.border}`,
+                display: "flex", flexDirection: "column",
+                position: isMobile ? "absolute" : "relative",
+                top: 0, left: 0, bottom: 0, zIndex: isMobile ? 10 : 1,
+              }}>
+              <SidebarContent />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-          {/* Sidebar tab toggle */}
-          <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
-            {[{ id: "resumes", icon: ICONS.doc, label: "Templates" },
-              { id: "style",   icon: ICONS.palette, label: "Style" }].map(t => (
-              <button key={t.id} onClick={() => setPanel(t.id)}
-                style={{ flex: 1, padding: "11px 8px", display: "flex", alignItems: "center",
-                  justifyContent: "center", gap: 5, background: "none",
-                  border: "none", cursor: "pointer",
-                  borderBottom: panel === t.id ? `2px solid ${T.gold}` : "2px solid transparent",
-                  color: panel === t.id ? T.gold : T.sub, fontSize: 11, fontWeight: 600, fontFamily: T.mono }}>
-                <Ic d={t.icon} size={13} color={panel === t.id ? T.gold : T.sub} />
-                {t.label.toUpperCase()}
-              </button>
-            ))}
+        {/* Mobile overlay backdrop */}
+        {isMobile && sidebarOpen && (
+          <div onClick={() => setSidebarOpen(false)}
+            style={{ position: "absolute", inset: 0, zIndex: 9,
+              background: "rgba(0,0,0,0.5)", backdropFilter: "blur(2px)" }} />
+        )}
+
+        {/* Preview canvas — scales the A4 paper to fit */}
+        <div ref={canvasRef}
+          style={{ flex: 1, overflowY: "auto", background: "#D0D0D0",
+            display: "flex", flexDirection: "column", alignItems: "center",
+            padding: "20px 0 40px", scrollbarWidth: "thin" }}>
+
+          {/* Scale label */}
+          <div style={{ fontFamily: T.mono, fontSize: 9, color: "#888",
+            marginBottom: 10, letterSpacing: "0.08em" }}>
+            {Math.round(scale * 100)}% · Click any text to edit
           </div>
 
-          <div style={{ padding: "14px 14px", flex: 1 }}>
-            {panel === "resumes" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <Label>SELECT RESUME</Label>
-                {Object.entries(RESUMES).map(([key, r]) => (
-                  <motion.button key={key} whileTap={{ scale: 0.97 }}
-                    onClick={() => switchResume(key)}
-                    style={{ padding: "10px 12px", borderRadius: 12, textAlign: "left",
-                      background: activeResume === key ? T.goldBg : T.surface,
-                      border: `1px solid ${activeResume === key ? T.goldBr : T.border}`,
-                      cursor: "pointer" }}>
-                    <p style={{ color: activeResume === key ? T.gold : T.text, fontSize: 12, fontWeight: 600, margin: 0 }}>{r.label}</p>
-                    <p style={{ color: T.sub, fontSize: 10, margin: "2px 0 0", fontFamily: T.mono }}>{r.title}</p>
-                  </motion.button>
-                ))}
-                <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 12, background: T.surface, border: `1px solid ${T.border}` }}>
-                  <p style={{ fontFamily: T.mono, fontSize: 9, color: T.faint, margin: "0 0 5px", letterSpacing: "0.08em" }}>TIP</p>
-                  <p style={{ color: T.sub, fontSize: 11, lineHeight: 1.5, margin: 0 }}>
-                    Click any text in the preview to edit it directly.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {panel === "style" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-
-                {/* Font */}
-                <div>
-                  <Label>FONT FAMILY</Label>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                    {FONTS.map(f => (
-                      <button key={f.id} onClick={() => setStyle(s => ({ ...s, font: f.id }))}
-                        style={{ padding: "7px 10px", borderRadius: 9, textAlign: "left",
-                          background: style.font === f.id ? T.goldBg : T.surface,
-                          border: `1px solid ${style.font === f.id ? T.goldBr : T.border}`,
-                          color: style.font === f.id ? T.gold : T.sub, fontSize: 12,
-                          fontFamily: f.css, cursor: "pointer" }}>
-                        {f.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Font size */}
-                <div>
-                  <Label>FONT SIZE: {style.fontSize}pt</Label>
-                  <input type="range" min={9} max={13} step={0.5} value={style.fontSize}
-                    onChange={e => setStyle(s => ({ ...s, fontSize: parseFloat(e.target.value) }))}
-                    style={{ width: "100%", accentColor: T.gold }} />
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ fontFamily: T.mono, fontSize: 9, color: T.faint }}>9pt</span>
-                    <span style={{ fontFamily: T.mono, fontSize: 9, color: T.faint }}>13pt</span>
-                  </div>
-                </div>
-
-                {/* Line height */}
-                <div>
-                  <Label>LINE SPACING: {style.lineHeight}×</Label>
-                  <input type="range" min={1.1} max={1.8} step={0.05} value={style.lineHeight}
-                    onChange={e => setStyle(s => ({ ...s, lineHeight: parseFloat(e.target.value) }))}
-                    style={{ width: "100%", accentColor: T.gold }} />
-                </div>
-
-                {/* Accent color */}
-                <div>
-                  <Label>ACCENT COLOR</Label>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                    {ACCENTS.map(a => (
-                      <button key={a.id} onClick={() => setStyle(s => ({ ...s, accent: a.id }))}
-                        style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 10px",
-                          borderRadius: 9, background: style.accent === a.id ? T.goldBg : T.surface,
-                          border: `1px solid ${style.accent === a.id ? T.goldBr : T.border}`,
-                          cursor: "pointer" }}>
-                        <div style={{ width: 14, height: 14, borderRadius: 3, background: a.hex, flexShrink: 0 }} />
-                        <span style={{ color: style.accent === a.id ? T.gold : T.sub, fontSize: 11 }}>{a.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div style={{ padding: "10px 12px", borderRadius: 12, background: T.surface, border: `1px solid ${T.border}` }}>
-                  <p style={{ fontFamily: T.mono, fontSize: 9, color: T.faint, margin: "0 0 5px", letterSpacing: "0.08em" }}>HOW TO EDIT</p>
-                  <p style={{ color: T.sub, fontSize: 11, lineHeight: 1.5, margin: 0 }}>
-                    Hover any text in the preview to see the edit cursor, then click to edit it inline.
-                  </p>
-                </div>
-              </div>
-            )}
+          {/* Scaled wrapper — this is what contains the A4 paper at scaled size */}
+          <div style={{ width: scaledW, height: scaledH, flexShrink: 0, position: "relative" }}>
+            {/* The actual A4 paper, full size, scaled down via transform */}
+            <div style={{
+              width: A4W, height: A4H,
+              transform: `scale(${scale})`,
+              transformOrigin: "top left",
+              position: "absolute", top: 0, left: 0,
+              boxShadow: "0 4px 32px rgba(0,0,0,0.3)",
+            }}>
+              <Preview
+                ref={previewRef}
+                resume={resumeData}
+                style={style}
+                onEditContact={onEditContact}
+                onEditText={onEditText}
+                onEditBullet={onEditBullet}
+                onEditJob={onEditJob}
+                onEditDegree={onEditDegree}
+              />
+            </div>
           </div>
-        </div>
-
-        {/* Preview canvas */}
-        <div style={{ flex: 1, overflowY: "auto", overflowX: "auto", background: "#E8E8E8",
-          display: "flex", justifyContent: "center", padding: "32px 24px", scrollbarWidth: "thin" }}>
-          <Preview
-            ref={previewRef}
-            resume={resumeData}
-            style={style}
-            onEditContact={onEditContact}
-            onEditText={onEditText}
-            onEditBullet={onEditBullet}
-            onEditJob={onEditJob}
-            onEditDegree={onEditDegree}
-          />
         </div>
       </div>
     </motion.div>
