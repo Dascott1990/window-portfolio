@@ -1,912 +1,760 @@
 "use client";
-/**
- * MusicApp.js — Nova Music
- * ─────────────────────────────────────────────────────────────────────────
- * A full-screen music OS, not a widget. Real audio, full songs.
- *
- * THREE ways to get music — each solving the 30-second problem differently:
- *
- * 1. LOCAL FILES — drag & drop or pick from device. Your actual music files
- *    play completely, no time limit, no API, 100% offline. This is the
- *    primary source of real full-length music.
- *
- * 2. DEEZER SEARCH — 30s official previews via the free Deezer API JSONP.
- *    Labelled clearly as previews. Real tracks, real artwork.
- *
- * 3. ITUNES SEARCH — 30s Apple previews as a second search source.
- *    Different catalog, same honest labeling.
- *
- * Layout: full-screen split — sidebar (library/search/queue) + main player.
- * On mobile: tab-based bottom nav, full-screen player.
- * Professional SVG icons throughout, no emoji-as-icon.
- */
-
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+  FaPlay, FaPause, FaStepForward, FaStepBackward,
+  FaRandom, FaRedo, FaVolumeUp, FaVolumeMute, FaVolumeDown,
+  FaHeart, FaRegHeart, FaSearch,
+} from "react-icons/fa";
+import { MdClose, MdQueueMusic, MdOutlineQueueMusic } from "react-icons/md";
+import { TbWaveSine, TbMusicSearch } from "react-icons/tb";
+import { ImSpinner8 } from "react-icons/im";
 
-// ─── SVG Icon system ──────────────────────────────────────────────────────────
-const Ic = ({ d, size = 20, c = "currentColor", sw = 1.7, fill = "none" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24"
-    fill={fill} stroke={c} strokeWidth={sw}
-    strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-    {(Array.isArray(d) ? d : [d]).map((p, i) => <path key={i} d={p} />)}
-  </svg>
-);
-
-const ICONS = {
-  play:     "M5 3l14 9-14 9V3z",
-  pause:    ["M6 4h4v16H6z", "M14 4h4v16h-4z"],
-  next:     ["M5 4l10 8-10 8V4z", "M19 4v16"],
-  prev:     ["M19 4L9 12l10 8V4z", "M5 4v16"],
-  shuffle:  ["M16 3h5v5", "M4 20L21 3", "M21 16v5h-5", "M15 15l6 6", "M4 4l5 5"],
-  repeat:   ["M17 2l4 4-4 4", "M3 11V9a4 4 0 0 1 4-4h14", "M7 22l-4-4 4-4", "M21 13v2a4 4 0 0 1-4 4H3"],
-  repeat1:  ["M17 2l4 4-4 4", "M3 11V9a4 4 0 0 1 4-4h14", "M7 22l-4-4 4-4", "M21 13v2a4 4 0 0 1-4 4H3", "M11 10h1v4"],
-  heart:    "M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z",
-  heartFill:"M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z",
-  search:   ["M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z", "M21 21l-4.35-4.35"],
-  close:    "M18 6L6 18M6 6l12 12",
-  music:    ["M9 18V5l12-2v13", "M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z", "M18 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"],
-  folder:   ["M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"],
-  queue:    ["M3 6h18", "M3 12h18", "M3 18h18"],
-  volHigh:  ["M11 5L6 9H2v6h4l5 4V5z", "M19.07 4.93a10 10 0 0 1 0 14.14", "M15.54 8.46a5 5 0 0 1 0 7.07"],
-  volLow:   ["M11 5L6 9H2v6h4l5 4V5z", "M15.54 8.46a5 5 0 0 1 0 7.07"],
-  volMute:  ["M11 5L6 9H2v6h4l5 4V5z", "M23 9l-6 6", "M17 9l6 6"],
-  upload:   ["M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", "M17 8l-5-5-5 5", "M12 3v12"],
-  wave:     ["M2 12h2", "M6 8v8", "M10 5v14", "M14 8v8", "M18 6v12", "M22 12h-2"],
-  plus:     "M12 5v14M5 12h14",
-  list:     ["M8 6h13", "M8 12h13", "M8 18h13", "M3 6h.01", "M3 12h.01", "M3 18h.01"],
-};
-
-// ─── Design tokens ────────────────────────────────────────────────────────────
-const C = {
-  bg:      "#08090F",
-  s1:      "#0D0E16",
-  s2:      "#12141E",
-  s3:      "#181A26",
-  b0:      "rgba(255,255,255,0.05)",
-  b1:      "rgba(255,255,255,0.09)",
-  b2:      "rgba(255,255,255,0.15)",
-  text:    "#F0EDE8",
-  sub:     "#7A8899",
-  faint:   "rgba(122,136,153,0.4)",
-  violet:  "#9B7FFF",
-  violetBg:"rgba(155,127,255,0.1)",
-  violetBr:"rgba(155,127,255,0.22)",
-  green:   "#1DB954",
-  pink:    "#F94777",
-  sans:    "-apple-system,'SF Pro Display',Inter,system-ui,sans-serif",
-  mono:    "'SF Mono','JetBrains Mono',monospace",
-};
-
-const ACCENT_COLORS = [
-  "#9B7FFF","#F94777","#1DB954","#FF6B35",
-  "#4A8FE8","#FFB020","#E8447A","#2BB56A",
+// ─── Fallback tracks (Deezer 30s previews) ───────────────────────────────────
+const FALLBACK_TRACKS = [
+  { id: 1, title: "Blinding Lights",   artist: "The Weeknd",           album: "After Hours",       duration: 30, color: "#c0392b",
+    src: "https://cdns-preview-d.dzcdn.net/stream/c-ddd852e2c547f83c3a7d62fd9a3e4c7a-5.mp3",
+    cover: "https://e-cdns-images.dzcdn.net/images/cover/2e018122cb56986277102d2041a592c8/500x500-000000-80-0-0.jpg" },
+  { id: 2, title: "Levitating",        artist: "Dua Lipa",             album: "Future Nostalgia",  duration: 30, color: "#8e44ad",
+    src: "https://cdns-preview-1.dzcdn.net/stream/c-1b83b832fa89742efd56f2c81fad7f3b-5.mp3",
+    cover: "https://e-cdns-images.dzcdn.net/images/cover/7b8bb2f4e4a8a5fd6a46c11a53e20d9d/500x500-000000-80-0-0.jpg" },
+  { id: 3, title: "As It Was",         artist: "Harry Styles",         album: "Harry's House",     duration: 30, color: "#16a085",
+    src: "https://cdns-preview-a.dzcdn.net/stream/c-a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1-5.mp3",
+    cover: "https://e-cdns-images.dzcdn.net/images/cover/3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e/500x500-000000-80-0-0.jpg" },
+  { id: 4, title: "Heat Waves",        artist: "Glass Animals",        album: "Dreamland",         duration: 30, color: "#e67e22",
+    src: "https://cdns-preview-5.dzcdn.net/stream/c-5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b-5.mp3",
+    cover: "https://e-cdns-images.dzcdn.net/images/cover/4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a/500x500-000000-80-0-0.jpg" },
+  { id: 5, title: "Anti-Hero",         artist: "Taylor Swift",         album: "Midnights",         duration: 30, color: "#1a6fd4",
+    src: "https://cdns-preview-7.dzcdn.net/stream/c-7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c-5.mp3",
+    cover: "https://e-cdns-images.dzcdn.net/images/cover/6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d/500x500-000000-80-0-0.jpg" },
+  { id: 6, title: "Stay",              artist: "The Kid LAROI",        album: "F*CK LOVE 3",       duration: 30, color: "#27ae60",
+    src: "https://cdns-preview-e.dzcdn.net/stream/c-e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8-5.mp3",
+    cover: "https://e-cdns-images.dzcdn.net/images/cover/8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e/500x500-000000-80-0-0.jpg" },
 ];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const ACCENT_COLORS = [
+  "#c0392b","#8e44ad","#16a085","#e67e22","#2980b9",
+  "#1abc9c","#d35400","#6c3483","#27ae60","#e74c3c",
+];
+
 const fmt = (s) => {
   if (!s || isNaN(s)) return "0:00";
   const m = Math.floor(s / 60), sec = Math.floor(s % 60);
   return `${m}:${sec.toString().padStart(2, "0")}`;
 };
-const uid = () => Math.random().toString(36).slice(2, 9);
 
-// ─── Responsive width hook ────────────────────────────────────────────────────
-function useWidth() {
-  const [w, setW] = useState(1024);
-  useEffect(() => {
-    const fn = () => setW(window.innerWidth);
-    fn(); window.addEventListener("resize", fn);
-    return () => window.removeEventListener("resize", fn);
-  }, []);
-  return w;
-}
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-// ─── Animated waveform ────────────────────────────────────────────────────────
-const Waveform = ({ playing, color = C.violet, bars = 28, height = 32 }) => (
-  <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height, padding: "0 2px" }}>
-    {Array.from({ length: bars }).map((_, i) => (
-      <motion.div key={i}
-        style={{ width: 3, borderRadius: 2, background: color, opacity: playing ? 0.9 : 0.25, flexShrink: 0 }}
-        animate={playing
-          ? { height: ["25%", `${30 + ((i * 41 + 17) % 70)}%`, "25%"] }
+// ─── Animated waveform bars ───────────────────────────────────────────────────
+const Visualizer = ({ isPlaying, color }) => (
+  <div className="flex items-end gap-[2px] h-7 px-1" aria-hidden="true">
+    {Array.from({ length: 24 }).map((_, i) => (
+      <motion.div
+        key={i}
+        className="w-[3px] rounded-full flex-shrink-0"
+        style={{ background: color || "#a78bfa", opacity: isPlaying ? 1 : 0.25 }}
+        animate={isPlaying
+          ? { height: ["25%", `${28 + ((i * 37 + 13) % 72)}%`, "25%"] }
           : { height: "20%" }}
-        transition={playing ? {
-          duration: 0.4 + (i % 6) * 0.08,
-          repeat: Infinity, repeatType: "mirror",
-          ease: "easeInOut", delay: i * 0.03,
-        } : { duration: 0.3 }} />
+        transition={isPlaying ? {
+          duration: 0.45 + (i % 5) * 0.1,
+          repeat: Infinity, repeatType: "mirror", ease: "easeInOut", delay: i * 0.035,
+        } : { duration: 0.3 }}
+      />
     ))}
   </div>
 );
 
-// ─── Album art ────────────────────────────────────────────────────────────────
-const Art = ({ src, color, playing, size = 240 }) => (
-  <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
-    <div style={{ position: "absolute", inset: -12, borderRadius: "50%",
-      background: color, filter: "blur(32px)", opacity: playing ? 0.3 : 0.12,
-      transition: "opacity 0.6s" }} />
-    <motion.div
-      animate={{ scale: playing ? 1 : 0.95 }}
-      transition={{ duration: 0.4, ease: "easeOut" }}
-      style={{ width: size, height: size, borderRadius: 20, overflow: "hidden",
-        boxShadow: `0 24px 64px rgba(0,0,0,0.6), 0 0 0 1px ${C.b1}`, position: "relative" }}>
-      {src ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt="cover" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-      ) : (
-        <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center",
-          justifyContent: "center", background: `linear-gradient(135deg, ${color}44, ${color}22)` }}>
-          <Ic d={ICONS.music} size={Math.round(size * 0.28)} c={color} sw={1.2} />
-        </div>
-      )}
-    </motion.div>
-  </div>
-);
+// ─── Album art component ──────────────────────────────────────────────────────
+const AlbumArt = ({ src, isPlaying, color, size = "lg" }) => {
+  const dim = size === "lg" ? "w-56 h-56 sm:w-64 sm:h-64" : "w-full h-full";
+  return (
+    <div className="relative flex-shrink-0">
+      <div className="absolute inset-0 rounded-2xl blur-3xl scale-110 opacity-30 transition-all duration-700"
+        style={{ background: color }} />
+      <motion.div
+        className={`relative ${dim} rounded-2xl overflow-hidden shadow-2xl`}
+        animate={{ scale: isPlaying ? 1 : 0.93 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+      >
+        {src ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={src} alt="album" className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center"
+            style={{ background: "linear-gradient(135deg,#1e1b4b,#312e81)" }}>
+            <TbWaveSine size={48} className="text-white/15" />
+          </div>
+        )}
+      </motion.div>
+    </div>
+  );
+};
 
-// ─── Progress bar ─────────────────────────────────────────────────────────────
-const Progress = ({ current, duration, color, onChange }) => {
+// ─── Progress scrubber ────────────────────────────────────────────────────────
+const Scrubber = ({ current, duration, onChange }) => {
   const pct = duration > 0 ? (current / duration) * 100 : 0;
   return (
-    <div style={{ width: "100%" }}>
-      <div style={{ display: "flex", justifyContent: "space-between",
-        fontFamily: C.mono, fontSize: 11, color: C.faint, marginBottom: 8 }}>
-        <span>{fmt(current)}</span>
-        <span>{fmt(duration)}</span>
+    <div className="w-full">
+      <div className="flex justify-between text-[11px] text-white/25 mb-1.5 tabular-nums font-mono">
+        <span>{fmt(current)}</span><span>{fmt(duration)}</span>
       </div>
-      <div style={{ position: "relative", height: 4, cursor: "pointer" }}>
-        <input type="range" min={0} max={duration || 100} step={0.1} value={current}
-          onChange={e => onChange(parseFloat(e.target.value))}
-          style={{ position: "absolute", inset: 0, width: "100%", height: "100%",
-            opacity: 0, cursor: "pointer", zIndex: 2 }} />
-        <div style={{ position: "absolute", inset: 0, borderRadius: 2, background: C.b1 }} />
-        <motion.div animate={{ width: `${pct}%` }} transition={{ duration: 0.1 }}
-          style={{ position: "absolute", left: 0, top: 0, bottom: 0, borderRadius: 2,
-            background: `linear-gradient(90deg, ${color}, ${color}bb)` }} />
-        <div style={{ position: "absolute", top: "50%", transform: "translateY(-50%)",
-          width: 12, height: 12, borderRadius: "50%", background: "white",
-          left: `calc(${pct}% - 6px)`, boxShadow: "0 2px 8px rgba(0,0,0,0.5)" }} />
+      <div className="relative h-1 group cursor-pointer">
+        <input type="range" min="0" max={duration || 100} step="0.1" value={current}
+          onChange={(e) => onChange(parseFloat(e.target.value))}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" aria-label="Seek" />
+        <div className="absolute inset-0 rounded-full bg-white/10" />
+        <div className="absolute inset-y-0 left-0 rounded-full transition-none"
+          style={{ width: `${pct}%`, background: "linear-gradient(90deg,#a78bfa,#60a5fa)" }} />
+        <div className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
+          style={{ left: `calc(${pct}% - 6px)` }} />
       </div>
     </div>
   );
 };
 
-// ─── Volume slider ────────────────────────────────────────────────────────────
-const Volume = ({ value, muted, onChange, onToggleMute }) => {
-  const icon = muted || value === 0 ? ICONS.volMute : value < 0.5 ? ICONS.volLow : ICONS.volHigh;
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <button onClick={onToggleMute}
-        style={{ background: "none", border: "none", color: C.sub, cursor: "pointer",
-          display: "flex", padding: 4 }}>
-        <Ic d={icon} size={16} c={C.sub} />
-      </button>
-      <div style={{ flex: 1, position: "relative", height: 3, cursor: "pointer" }}>
-        <input type="range" min={0} max={1} step={0.01} value={muted ? 0 : value}
-          onChange={e => onChange(parseFloat(e.target.value))}
-          style={{ position: "absolute", inset: 0, width: "100%", height: "100%",
-            opacity: 0, cursor: "pointer", zIndex: 2 }} />
-        <div style={{ position: "absolute", inset: 0, borderRadius: 2, background: C.b1 }} />
-        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, borderRadius: 2,
-          background: C.b2, width: `${(muted ? 0 : value) * 100}%` }} />
-      </div>
-    </div>
-  );
-};
-
-// ─── Track row ────────────────────────────────────────────────────────────────
-const TrackRow = ({ track, active, playing, onPlay, liked, onLike, isPreview }) => (
-  <motion.div whileHover={{ background: C.b0 }} whileTap={{ scale: 0.99 }}
-    onClick={onPlay}
-    style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 14px",
-      borderRadius: 12, cursor: "pointer", transition: "background 0.12s",
-      background: active ? C.b1 : "transparent" }}>
-    <div style={{ width: 42, height: 42, borderRadius: 10, overflow: "hidden",
-      background: `linear-gradient(135deg,${track.color || C.violet}44,${track.color || C.violet}18)`,
-      flexShrink: 0, position: "relative" }}>
-      {track.cover ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={track.cover} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-      ) : (
-        <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <Ic d={ICONS.music} size={16} c={track.color || C.violet} />
-        </div>
-      )}
-      {active && playing && (
-        <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)",
-          display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <Waveform playing bars={4} height={18} color="white" />
+// ─── Track row in queue/search ────────────────────────────────────────────────
+const TrackRow = ({ track, isCurrent, isPlaying, onSelect, liked, onLike, showDuration = true }) => (
+  <motion.div
+    layout
+    whileHover={{ backgroundColor: "rgba(255,255,255,0.06)" }}
+    whileTap={{ scale: 0.98 }}
+    onClick={onSelect}
+    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors ${isCurrent ? "bg-white/10" : ""}`}
+  >
+    <div className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 relative">
+      {track.cover
+        ? <img src={track.cover} alt="" className="w-full h-full object-cover" />  // eslint-disable-line
+        : <div className="w-full h-full bg-white/10 flex items-center justify-center"><TbWaveSine size={14} className="text-white/30" /></div>}
+      {isCurrent && isPlaying && (
+        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+          <div className="flex items-end gap-[2px] h-3">
+            {[0,1,2].map((i) => (
+              <motion.div key={i} className="w-[2px] bg-white rounded-full"
+                animate={{ height: ["30%","100%","30%"] }}
+                transition={{ duration: 0.5, repeat: Infinity, delay: i * 0.15, ease: "easeInOut" }} />
+            ))}
+          </div>
         </div>
       )}
     </div>
-    <div style={{ flex: 1, minWidth: 0 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <p style={{ color: active ? C.text : "rgba(240,237,232,0.8)", fontSize: 13.5,
-          fontWeight: active ? 600 : 400, margin: 0, overflow: "hidden",
-          textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{track.title}</p>
-        {isPreview && <span style={{ fontSize: 9, fontFamily: C.mono, color: C.sub,
-          background: C.b1, borderRadius: 4, padding: "1px 5px", flexShrink: 0 }}>30s</span>}
-        {track.isLocal && <span style={{ fontSize: 9, fontFamily: C.mono, color: C.green,
-          background: "rgba(29,185,84,0.12)", borderRadius: 4, padding: "1px 5px", flexShrink: 0 }}>LOCAL</span>}
-      </div>
-      <p style={{ color: C.faint, fontSize: 11.5, margin: "1px 0 0",
-        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {track.artist}{track.album ? ` · ${track.album}` : ""}
-      </p>
+    <div className="flex-1 min-w-0">
+      <p className={`text-sm truncate leading-tight ${isCurrent ? "text-white font-semibold" : "text-white/80"}`}>{track.title}</p>
+      <p className="text-xs text-white/30 truncate">{track.artist}</p>
     </div>
-    <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-      <button onClick={e => { e.stopPropagation(); onLike(); }}
-        style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}>
-        <Ic d={ICONS.heartFill} size={14} c={liked ? C.pink : "transparent"}
-          fill={liked ? C.pink : "none"} sw={liked ? 0 : 1.5} />
-      </button>
-      <span style={{ fontFamily: C.mono, fontSize: 11, color: C.faint,
-        width: 34, textAlign: "right" }}>{fmt(track.duration)}</span>
-    </div>
+    <button onClick={(e) => { e.stopPropagation(); onLike(); }}
+      className="p-1 text-white/20 hover:text-pink-400 transition-colors flex-shrink-0" aria-label="Like">
+      {liked ? <FaHeart size={12} className="text-pink-400" /> : <FaRegHeart size={12} />}
+    </button>
+    {showDuration && (
+      <span className="text-white/20 text-[11px] tabular-nums flex-shrink-0 w-7 text-right font-mono">
+        {fmt(track.duration)}
+      </span>
+    )}
   </motion.div>
 );
 
-// ─── Control button ───────────────────────────────────────────────────────────
-const CtrlBtn = ({ icon, onClick, color = C.sub, size = 20, active, fill }) => (
-  <motion.button whileTap={{ scale: 0.85 }} onClick={onClick}
-    style={{ background: "none", border: "none", cursor: "pointer",
-      color: active ? C.violet : color, padding: 8,
-      display: "flex", alignItems: "center", justifyContent: "center" }}>
-    <Ic d={icon} size={size} c={active ? C.violet : color} fill={fill} />
-  </motion.button>
+// ─── SEARCH BAR ───────────────────────────────────────────────────────────────
+const SearchBar = ({ query, onChange, onClear, searching }) => (
+  <div className="relative flex items-center">
+    <div className="absolute left-3.5 text-white/30 flex items-center">
+      {searching
+        ? <ImSpinner8 size={14} className="animate-spin text-violet-400" />
+        : <FaSearch size={13} />}
+    </div>
+    <input
+      type="text"
+      value={query}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder="Search songs, artists, albums…"
+      className="w-full pl-9 pr-9 py-2.5 rounded-xl bg-white/8 border border-white/8 text-white text-sm placeholder-white/25 focus:outline-none focus:ring-1 focus:ring-violet-500/50 focus:bg-white/12 transition-all"
+    />
+    <AnimatePresence>
+      {query && (
+        <motion.button
+          initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
+          onClick={onClear}
+          className="absolute right-3 text-white/25 hover:text-white transition-colors"
+          aria-label="Clear search">
+          <MdClose size={16} />
+        </motion.button>
+      )}
+    </AnimatePresence>
+  </div>
 );
 
-// ─── Local file loader ────────────────────────────────────────────────────────
-function loadLocalFile(file) {
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const audio = new Audio(url);
-    audio.addEventListener("loadedmetadata", () => {
-      resolve({
-        id: uid(),
-        title: file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "),
-        artist: "Local File",
-        album: "",
-        src: url,
-        cover: null,
-        duration: audio.duration || 0,
-        color: ACCENT_COLORS[Math.floor(Math.random() * ACCENT_COLORS.length)],
-        isLocal: true,
-        isPreview: false,
-      });
-    }, { once: true });
-    audio.addEventListener("error", () => {
-      resolve({
-        id: uid(), title: file.name, artist: "Local File", album: "",
-        src: url, cover: null, duration: 0,
-        color: ACCENT_COLORS[0], isLocal: true, isPreview: false,
-      });
-    }, { once: true });
-  });
-}
-
-// ─── Deezer chart loader via JSONP ────────────────────────────────────────────
-function loadDeezerChart(onResult) {
-  const cbName = "__deezerChart_" + Date.now();
-  window[cbName] = (data) => {
-    const tracks = (data?.data || []).filter(t => t.preview).slice(0, 15).map((t, i) => ({
-      id: "dz_" + t.id, title: t.title_short || t.title,
-      artist: t.artist?.name || "Unknown", album: t.album?.title || "",
-      src: t.preview, cover: t.album?.cover_medium || "",
-      duration: 30, color: ACCENT_COLORS[i % ACCENT_COLORS.length],
-      isPreview: true, isLocal: false,
-    }));
-    onResult(tracks);
-    delete window[cbName];
-    document.getElementById("dz-chart-script")?.remove();
-  };
-  const s = document.createElement("script");
-  s.id = "dz-chart-script";
-  s.src = `https://api.deezer.com/chart/0/tracks?limit=15&output=jsonp&callback=${cbName}`;
-  s.onerror = () => { onResult([]); delete window[cbName]; };
-  document.body.appendChild(s);
-}
-
-// ─── Deezer search via JSONP ──────────────────────────────────────────────────
-function searchDeezer(q, onResult) {
-  const cbName = "__deezerSearch_" + Date.now();
-  window[cbName] = (data) => {
-    const tracks = (data?.data || []).filter(t => t.preview).slice(0, 20).map((t, i) => ({
-      id: "dz_" + t.id, title: t.title_short || t.title,
-      artist: t.artist?.name || "Unknown", album: t.album?.title || "",
-      src: t.preview, cover: t.album?.cover_medium || "",
-      duration: 30, color: ACCENT_COLORS[i % ACCENT_COLORS.length],
-      isPreview: true, isLocal: false,
-    }));
-    onResult(tracks);
-    delete window[cbName];
-    document.getElementById("dz-search-script")?.remove();
-  };
-  const s = document.createElement("script");
-  s.id = "dz-search-script";
-  s.src = `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=20&output=jsonp&callback=${cbName}`;
-  s.onerror = () => { onResult([]); delete window[cbName]; };
-  document.getElementById("dz-search-script")?.remove();
-  document.body.appendChild(s);
-}
-
-// ─── iTunes search fallback ───────────────────────────────────────────────────
-async function searchItunes(q) {
-  try {
-    const r = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&limit=20&entity=song`);
-    const d = await r.json();
-    return (d.results || []).filter(t => t.previewUrl).map((t, i) => ({
-      id: "it_" + t.trackId, title: t.trackName || "",
-      artist: t.artistName || "", album: t.collectionName || "",
-      src: t.previewUrl, cover: (t.artworkUrl100 || "").replace("100x100", "300x300"),
-      duration: 30, color: ACCENT_COLORS[i % ACCENT_COLORS.length],
-      isPreview: true, isLocal: false,
-    }));
-  } catch { return []; }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// MAIN COMPONENT
-// ══════════════════════════════════════════════════════════════════════════════
+// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 const MusicApp = ({ musicOpen, setMusicOpen }) => {
-  const [library,     setLibrary]     = useState([]);
-  const [queue,       setQueue]       = useState([]);
-  const [queueIdx,    setQueueIdx]    = useState(0);
-  const [playing,     setPlaying]     = useState(false);
-  const [current,     setCurrent]     = useState(0);
-  const [duration,    setDuration]    = useState(0);
-  const [volume,      setVolume]      = useState(0.8);
-  const [muted,       setMuted]       = useState(false);
-  const [shuffle,     setShuffle]     = useState(false);
-  const [repeat,      setRepeat]      = useState("none"); // none | all | one
-  const [liked,       setLiked]       = useState(new Set());
-  const [tab,         setTab]         = useState("library"); // library | search | queue
-  const [searchQ,     setSearchQ]     = useState("");
-  const [searchRes,   setSearchRes]   = useState([]);
-  const [searching,   setSearching]   = useState(false);
-  const [loading,     setLoading]     = useState(false);
-  const [error,       setError]       = useState(false);
-  const [dragging,    setDragging]    = useState(false);
-  const audioRef   = useRef(null);
-  const searchRef  = useRef(null);
-  const fileRef    = useRef(null);
-  const prevQIdx   = useRef(null);
-  const w          = useWidth();
-  const isMobile   = w < 700;
+  const [tracks, setTracks]           = useState([]);
+  const [idx, setIdx]                 = useState(0);
+  const [isPlaying, setIsPlaying]     = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration]       = useState(0);
+  const [volume, setVolume]           = useState(0.75);
+  const [muted, setMuted]             = useState(false);
+  const [shuffle, setShuffle]         = useState(false);
+  const [repeat, setRepeat]           = useState(false);
+  const [liked, setLiked]             = useState(new Set());
+  const [view, setView]               = useState("player");   // "player" | "queue" | "search"
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching]     = useState(false);
+  const [searchError, setSearchError] = useState(false);
+  const [loading, setLoading]         = useState(false);
+  const [audioError, setAudioError]   = useState(false);
+  const [chartLoaded, setChartLoaded] = useState(false);
 
-  const track = queue[queueIdx] ?? null;
-  const accent = track?.color || C.violet;
+  const audioRef    = useRef(null);
+  const prevIdx     = useRef(null);
+  const searchTimer = useRef(null);
 
-  // ── Load Deezer chart on mount ──────────────────────────────────────────
+  const track = tracks[idx] ?? null;
+
+  // ── Load Deezer chart on mount via JSONP ──────────────────────────────────
   useEffect(() => {
-    loadDeezerChart(tracks => {
-      if (tracks.length > 0) {
-        setLibrary(tracks);
-        setQueue(tracks);
-      }
-    });
+    const id = "deezer-chart-jsonp";
+    window.__deezerChartCb = (data) => {
+      try {
+        const parsed = (data?.data || []).filter((t) => t.preview).slice(0, 12).map((t, i) => ({
+          id:       t.id,
+          title:    t.title_short || t.title,
+          artist:   t.artist?.name ?? "Unknown",
+          album:    t.album?.title ?? "",
+          src:      t.preview,
+          cover:    t.album?.cover_medium ?? "",
+          duration: t.duration ?? 30,
+          color:    ACCENT_COLORS[i % ACCENT_COLORS.length],
+        }));
+        if (parsed.length > 0) { setTracks(parsed); setChartLoaded(true); }
+        else setTracks(FALLBACK_TRACKS);
+      } catch { setTracks(FALLBACK_TRACKS); }
+      document.getElementById(id)?.remove();
+    };
+    const script = document.createElement("script");
+    script.id = id;
+    script.src = "https://api.deezer.com/chart/0/tracks?limit=12&output=jsonp&callback=__deezerChartCb";
+    script.onerror = () => { setTracks(FALLBACK_TRACKS); };
+    document.body.appendChild(script);
+    return () => { document.getElementById(id)?.remove(); };
   }, []);
 
-  // ── Audio element wiring ────────────────────────────────────────────────
+  // ── Deezer search via JSONP ───────────────────────────────────────────────
+  const runSearch = useCallback((q) => {
+    if (!q.trim()) { setSearchResults([]); setSearchError(false); return; }
+    setSearching(true);
+    setSearchError(false);
+
+    const id = "deezer-search-jsonp";
+    document.getElementById(id)?.remove();
+
+    const cbName = "__deezerSearchCb_" + Date.now();
+    window[cbName] = (data) => {
+      try {
+        const results = (data?.data || []).filter((t) => t.preview).slice(0, 15).map((t, i) => ({
+          id:       t.id,
+          title:    t.title_short || t.title,
+          artist:   t.artist?.name ?? "Unknown",
+          album:    t.album?.title ?? "",
+          src:      t.preview,
+          cover:    t.album?.cover_medium ?? "",
+          duration: t.duration ?? 30,
+          color:    ACCENT_COLORS[i % ACCENT_COLORS.length],
+        }));
+        setSearchResults(results);
+        if (results.length === 0) setSearchError(true);
+      } catch { setSearchError(true); }
+      setSearching(false);
+      document.getElementById(id)?.remove();
+      delete window[cbName];
+    };
+
+    const script = document.createElement("script");
+    script.id = id;
+    script.src = `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=15&output=jsonp&callback=${cbName}`;
+    script.onerror = () => { setSearching(false); setSearchError(true); document.getElementById(id)?.remove(); };
+    document.body.appendChild(script);
+  }, []);
+
+  // Debounced search input handler
+  const handleSearchChange = useCallback((val) => {
+    setSearchQuery(val);
+    clearTimeout(searchTimer.current);
+    if (!val.trim()) { setSearchResults([]); setSearchError(false); setSearching(false); return; }
+    searchTimer.current = setTimeout(() => runSearch(val), 450);
+  }, [runSearch]);
+
+  // Play a track from search
+  const playFromSearch = useCallback((t) => {
+    // Check if already in queue
+    const existing = tracks.findIndex((tr) => tr.id === t.id);
+    if (existing !== -1) {
+      setIdx(existing);
+    } else {
+      const newTracks = [...tracks, t];
+      setTracks(newTracks);
+      setIdx(newTracks.length - 1);
+    }
+    setIsPlaying(true);
+    setView("player");
+  }, [tracks]);
+
+  // ── Sync audio src when track changes ────────────────────────────────────
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !track) return;
+    const shouldAutoPlay = isPlaying || (prevIdx.current !== null && prevIdx.current !== idx);
+    prevIdx.current = idx;
+    audio.src = track.src;
+    audio.load();
+    setCurrentTime(0);
+    setDuration(0);
+    setAudioError(false);
+    if (shouldAutoPlay) {
+      setLoading(true);
+      audio.play().catch(() => setAudioError(true));
+    }
+  }, [idx, track]); // eslint-disable-line
+
+  // ── Play / Pause ─────────────────────────────────────────────────────────
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    const onTime    = () => setCurrent(audio.currentTime);
-    const onMeta    = () => setDuration(isFinite(audio.duration) ? audio.duration : 0);
-    const onDurChg  = () => setDuration(isFinite(audio.duration) ? audio.duration : 0);
-    const onCan     = () => setLoading(false);
-    const onWait    = () => setLoading(true);
-    const onPlay_   = () => { setLoading(false); setError(false); };
-    const onErr     = () => { setLoading(false); setError(true); };
-    const onEnded   = () => {
-      if (repeat === "one") { audio.currentTime = 0; audio.play(); return; }
-      goNext(true);
-    };
-    audio.addEventListener("timeupdate",     onTime);
-    audio.addEventListener("loadedmetadata", onMeta);
-    audio.addEventListener("durationchange", onDurChg);
-    audio.addEventListener("canplay",        onCan);
-    audio.addEventListener("waiting",        onWait);
-    audio.addEventListener("playing",        onPlay_);
-    audio.addEventListener("error",          onErr);
-    audio.addEventListener("ended",          onEnded);
-    return () => {
-      audio.removeEventListener("timeupdate",     onTime);
-      audio.removeEventListener("loadedmetadata", onMeta);
-      audio.removeEventListener("durationchange", onDurChg);
-      audio.removeEventListener("canplay",        onCan);
-      audio.removeEventListener("waiting",        onWait);
-      audio.removeEventListener("playing",        onPlay_);
-      audio.removeEventListener("error",          onErr);
-      audio.removeEventListener("ended",          onEnded);
-    };
-  }, [repeat]); // eslint-disable-line
-
-  // ── Track change → reload audio ────────────────────────────────────────
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || !track) return;
-    const wasPlaying = playing || (prevQIdx.current !== null && prevQIdx.current !== queueIdx);
-    prevQIdx.current = queueIdx;
-    audio.src = track.src;
-    audio.load();
-    setCurrent(0); setDuration(0); setError(false);
-    if (wasPlaying) {
-      setLoading(true);
-      audio.play().catch(() => setError(true));
-      setPlaying(true);
-    }
-  }, [queueIdx, track?.id]); // eslint-disable-line
-
-  // ── Play/pause ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || !track) return;
-    if (playing) { setLoading(true); audio.play().catch(() => { setError(true); setPlaying(false); }); }
+    if (isPlaying) { setLoading(true); audio.play().catch(() => { setAudioError(true); setIsPlaying(false); }); }
     else audio.pause();
-  }, [playing]); // eslint-disable-line
+  }, [isPlaying]);
 
-  // ── Volume ──────────────────────────────────────────────────────────────
+  // ── Volume ────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = muted ? 0 : volume;
   }, [volume, muted]);
 
+  // ── Audio event listeners ─────────────────────────────────────────────────
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const onTime     = () => setCurrentTime(audio.currentTime);
+    const onDur      = () => setDuration(audio.duration || 0);
+    const onCanPlay  = () => setLoading(false);
+    const onWaiting  = () => setLoading(true);
+    const onPlaying  = () => { setLoading(false); setAudioError(false); };
+    const onError    = () => { setLoading(false); setAudioError(true); };
+    const onEnded    = () => {
+      if (repeat === "one") { audio.currentTime = 0; audio.play(); }
+      else goNext(true);
+    };
+    audio.addEventListener("timeupdate",     onTime);
+    audio.addEventListener("loadedmetadata", onDur);
+    audio.addEventListener("durationchange", onDur);
+    audio.addEventListener("canplay",        onCanPlay);
+    audio.addEventListener("waiting",        onWaiting);
+    audio.addEventListener("playing",        onPlaying);
+    audio.addEventListener("error",          onError);
+    audio.addEventListener("ended",          onEnded);
+    return () => {
+      audio.removeEventListener("timeupdate",     onTime);
+      audio.removeEventListener("loadedmetadata", onDur);
+      audio.removeEventListener("durationchange", onDur);
+      audio.removeEventListener("canplay",        onCanPlay);
+      audio.removeEventListener("waiting",        onWaiting);
+      audio.removeEventListener("playing",        onPlaying);
+      audio.removeEventListener("error",          onError);
+      audio.removeEventListener("ended",          onEnded);
+    };
+  }, [repeat]); // eslint-disable-line
+
   const goNext = useCallback((auto = false) => {
-    setQueueIdx(i => {
-      if (!queue.length) return i;
-      if (shuffle) return Math.floor(Math.random() * queue.length);
-      const next = (i + 1) % queue.length;
-      if (auto && next === 0 && repeat !== "all") { setPlaying(false); return i; }
+    setIdx((i) => {
+      if (tracks.length === 0) return i;
+      if (shuffle) return Math.floor(Math.random() * tracks.length);
+      const next = (i + 1) % tracks.length;
+      if (!auto && next === 0 && repeat !== "all") { setIsPlaying(false); return i; }
       return next;
     });
-    if (!playing && !auto) setPlaying(true);
-  }, [queue.length, shuffle, repeat, playing]);
+    if (!isPlaying && !auto) setIsPlaying(true);
+  }, [shuffle, tracks.length, repeat, isPlaying]);
 
   const goPrev = useCallback(() => {
-    if (current > 3 && audioRef.current) { audioRef.current.currentTime = 0; return; }
-    setQueueIdx(i => i === 0 ? queue.length - 1 : i - 1);
-    setPlaying(true);
-  }, [current, queue.length]);
+    if (currentTime > 3 && audioRef.current) { audioRef.current.currentTime = 0; return; }
+    setIdx((i) => (i === 0 ? tracks.length - 1 : i - 1));
+    setIsPlaying(true);
+  }, [currentTime, tracks.length]);
 
-  const seek = useCallback(t => {
-    const v = Math.max(0, Math.min(t, duration));
-    if (audioRef.current) audioRef.current.currentTime = v;
-    setCurrent(v);
+  const seek = useCallback((t) => {
+    if (audioRef.current) audioRef.current.currentTime = clamp(t, 0, duration);
+    setCurrentTime(clamp(t, 0, duration));
   }, [duration]);
 
-  const toggleLike = (id) => setLiked(s => {
-    const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n;
-  });
+  const toggleRepeat = () => setRepeat((r) => r === false ? "all" : r === "all" ? "one" : false);
+  const toggleLike   = (id) => setLiked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
-  const playTrack = useCallback((t) => {
-    const existing = queue.findIndex(q => q.id === t.id);
-    if (existing !== -1) {
-      setQueueIdx(existing);
-    } else {
-      const newQ = [...queue, t];
-      setQueue(newQ);
-      setQueueIdx(newQ.length - 1);
-    }
-    setPlaying(true);
-  }, [queue]);
-
-  // ── File input / drag-drop ──────────────────────────────────────────────
-  const handleFiles = useCallback(async (files) => {
-    const audioFiles = Array.from(files).filter(f => f.type.startsWith("audio/") || /\.(mp3|flac|wav|ogg|aac|m4a|opus)$/i.test(f.name));
-    if (!audioFiles.length) return;
-    const tracks = await Promise.all(audioFiles.map(loadLocalFile));
-    setLibrary(prev => {
-      const existing = new Set(prev.map(t => t.title + t.artist));
-      return [...prev, ...tracks.filter(t => !existing.has(t.title + t.artist))];
-    });
-    setQueue(prev => {
-      const existing = new Set(prev.map(t => t.id));
-      const newTracks = tracks.filter(t => !existing.has(t.id));
-      return [...prev, ...newTracks];
-    });
-    // Auto-play first added file
-    const newQ = [...queue, ...tracks];
-    setQueue(newQ);
-    setQueueIdx(newQ.length - tracks.length);
-    setPlaying(true);
-  }, [queue]);
-
-  // ── Search ──────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!searchQ.trim()) { setSearchRes([]); return; }
-    const t = setTimeout(async () => {
-      setSearching(true);
-      setSearchRes([]);
-      // Parallel search: Deezer + iTunes
-      await new Promise(resolve => {
-        let done = 0;
-        const merged = new Map();
-        const finish = (results) => {
-          results.forEach(t => { if (!merged.has(t.id)) merged.set(t.id, t); });
-          done++;
-          if (done === 2) { setSearchRes([...merged.values()].slice(0, 24)); setSearching(false); resolve(); }
-        };
-        searchDeezer(searchQ, finish);
-        searchItunes(searchQ).then(finish);
-      });
-    }, 400);
-    return () => clearTimeout(t);
-  }, [searchQ]);
-
-  // ── Keyboard ────────────────────────────────────────────────────────────
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
     if (!musicOpen) return;
     const h = (e) => {
-      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
-      if (e.code === "Space")      { e.preventDefault(); setPlaying(p => !p); }
-      if (e.code === "ArrowRight") seek(current + 10);
-      if (e.code === "ArrowLeft")  seek(current - 10);
-      if (e.code === "ArrowUp")    setVolume(v => Math.min(1, v + 0.05));
-      if (e.code === "ArrowDown")  setVolume(v => Math.max(0, v - 0.05));
+      if (e.target.tagName === "INPUT") return;
+      if (e.code === "Space")      { e.preventDefault(); setIsPlaying((p) => !p); }
+      if (e.code === "ArrowRight") seek(currentTime + 5);
+      if (e.code === "ArrowLeft")  seek(currentTime - 5);
+      if (e.code === "ArrowUp")    setVolume((v) => clamp(v + 0.05, 0, 1));
+      if (e.code === "ArrowDown")  setVolume((v) => clamp(v - 0.05, 0, 1));
       if (e.code === "KeyN")       goNext();
       if (e.code === "KeyP")       goPrev();
-      if (e.code === "KeyM")       setMuted(m => !m);
+      if (e.code === "KeyM")       setMuted((m) => !m);
+      if (e.code === "KeyS" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); setView("search"); }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [musicOpen, current, seek, goNext, goPrev]);
+  }, [musicOpen, currentTime, seek, goNext, goPrev]);
+
+  const accentColor = track?.color ?? "#a78bfa";
+  const repeatColor = repeat ? "#a78bfa" : "rgba(255,255,255,0.3)";
+  const shuffleColor = shuffle ? "#a78bfa" : "rgba(255,255,255,0.3)";
 
   if (!musicOpen) return null;
 
-  // ── Player section ──────────────────────────────────────────────────────
-  const PlayerView = () => (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center",
-      justifyContent: "center", gap: 28, padding: isMobile ? "24px 24px 16px" : "32px 48px",
-      flex: isMobile ? 1 : "none" }}>
-
-      {/* Album art */}
-      <AnimatePresence mode="wait">
-        <motion.div key={track?.id || "empty"}
-          initial={{ opacity: 0, scale: 0.92, y: 10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: -8 }}
-          transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}>
-          <Art src={track?.cover} color={accent} playing={playing && !loading}
-            size={isMobile ? Math.min(w - 80, 240) : 260} />
-        </motion.div>
-      </AnimatePresence>
-
-      {/* Waveform */}
-      <Waveform playing={playing && !loading} color={accent}
-        bars={isMobile ? 20 : 28} height={28} />
-
-      {/* Track info */}
-      <div style={{ width: "100%", display: "flex", alignItems: "flex-start",
-        justifyContent: "space-between", gap: 12 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <AnimatePresence mode="wait">
-            <motion.h2 key={track?.id || "empty"}
-              initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.2 }}
-              style={{ fontSize: isMobile ? 20 : 22, fontWeight: 800, color: C.text,
-                margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {loading ? "Loading…" : error ? "Unavailable" : (track?.title || "No track")}
-            </motion.h2>
-          </AnimatePresence>
-          <p style={{ color: C.sub, fontSize: 14, margin: "4px 0 0",
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {track?.artist || "—"}{track?.album ? ` · ${track.album}` : ""}
-          </p>
-          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-            {track?.isPreview && (
-              <span style={{ fontSize: 10, fontFamily: C.mono, color: C.sub,
-                background: C.b1, borderRadius: 4, padding: "2px 6px" }}>30s PREVIEW</span>
-            )}
-            {track?.isLocal && (
-              <span style={{ fontSize: 10, fontFamily: C.mono, color: C.green,
-                background: "rgba(29,185,84,0.12)", borderRadius: 4, padding: "2px 6px" }}>LOCAL FILE</span>
-            )}
-          </div>
-        </div>
-        <CtrlBtn icon={ICONS.heartFill} color={liked.has(track?.id) ? "transparent" : C.sub}
-          fill={liked.has(track?.id) ? C.pink : "none"}
-          sw={liked.has(track?.id) ? 0 : 1.7}
-          onClick={() => track && toggleLike(track.id)} />
-      </div>
-
-      {/* Progress */}
-      <Progress current={current} duration={duration} color={accent} onChange={seek} />
-
-      {/* Transport */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
-        width: "100%", maxWidth: 320 }}>
-        <CtrlBtn icon={ICONS.shuffle} active={shuffle} onClick={() => setShuffle(s => !s)} size={18} />
-        <CtrlBtn icon={ICONS.prev} onClick={goPrev} color={C.text} size={22} />
-
-        {/* Play/Pause big button */}
-        <motion.button whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.93 }}
-          onClick={() => setPlaying(p => !p)}
-          style={{ width: 64, height: 64, borderRadius: "50%", border: "none",
-            background: `linear-gradient(135deg, ${accent}, ${accent}99)`,
-            boxShadow: `0 8px 32px ${accent}55`,
-            display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-          {loading ? (
-            <div style={{ width: 22, height: 22, border: `2px solid rgba(255,255,255,0.3)`,
-              borderTopColor: "white", borderRadius: "50%", animation: "music-spin 0.7s linear infinite" }} />
-          ) : (
-            <AnimatePresence mode="wait">
-              <motion.div key={playing ? "pause" : "play"}
-                initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.6, opacity: 0 }} transition={{ duration: 0.12 }}
-                style={{ display: "flex", marginLeft: playing ? 0 : 2 }}>
-                <Ic d={playing ? ICONS.pause : ICONS.play} size={24} c="white" fill="white" sw={0} />
-              </motion.div>
-            </AnimatePresence>
-          )}
-        </motion.button>
-
-        <CtrlBtn icon={ICONS.next} onClick={() => goNext()} color={C.text} size={22} />
-        <CtrlBtn
-          icon={repeat === "one" ? ICONS.repeat1 : ICONS.repeat}
-          active={repeat !== "none"}
-          onClick={() => setRepeat(r => r === "none" ? "all" : r === "all" ? "one" : "none")}
-          size={18} />
-      </div>
-
-      {/* Volume */}
-      <div style={{ width: "100%", maxWidth: 320 }}>
-        <Volume value={volume} muted={muted}
-          onChange={v => { setVolume(v); setMuted(false); }}
-          onToggleMute={() => setMuted(m => !m)} />
-      </div>
-
-      {/* Add local music */}
-      <input ref={fileRef} type="file" accept="audio/*" multiple
-        style={{ display: "none" }} onChange={e => handleFiles(e.target.files)} />
-      <motion.button whileTap={{ scale: 0.97 }}
-        onClick={() => fileRef.current?.click()}
-        style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 18px",
-          borderRadius: 20, background: C.b0, border: `1px solid ${C.b1}`,
-          color: C.sub, fontSize: 13, cursor: "pointer", fontFamily: C.sans }}>
-        <Ic d={ICONS.upload} size={14} c={C.sub} />
-        Add your music files — no 30s limit
-      </motion.button>
-
-      <p style={{ fontFamily: C.mono, fontSize: 10, color: C.faint, textAlign: "center" }}>
-        Space · ←→ seek · ↑↓ vol · N next · M mute
-      </p>
-    </div>
-  );
-
-  // ── Sidebar / panel section ─────────────────────────────────────────────
-  const SidePanel = () => (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
-
-      {/* Tabs */}
-      <div style={{ display: "flex", borderBottom: `1px solid ${C.b0}`, flexShrink: 0 }}>
-        {[{ id: "library", icon: ICONS.list, label: "Library" },
-          { id: "search",  icon: ICONS.search, label: "Search" },
-          { id: "queue",   icon: ICONS.queue, label: "Queue" }].map(t => {
-          const active = tab === t.id;
-          return (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              style={{ flex: 1, padding: "12px 6px", display: "flex", alignItems: "center",
-                justifyContent: "center", gap: 5, background: "none", border: "none",
-                cursor: "pointer", borderBottom: active ? `2px solid ${accent}` : "2px solid transparent",
-                color: active ? accent : C.faint, fontSize: 11, fontWeight: 700, fontFamily: C.mono,
-                transition: "color 0.15s, border-color 0.15s" }}>
-              <Ic d={t.icon} size={13} c={active ? accent : C.faint} />
-              {t.label.toUpperCase()}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Search input */}
-      {tab === "search" && (
-        <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.b0}`, flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8,
-            background: C.s3, border: `1px solid ${C.b1}`, borderRadius: 12, padding: "8px 12px" }}>
-            {searching
-              ? <div style={{ width: 14, height: 14, border: `2px solid ${C.violet}40`,
-                  borderTopColor: C.violet, borderRadius: "50%", animation: "music-spin 0.7s linear infinite", flexShrink: 0 }} />
-              : <Ic d={ICONS.search} size={14} c={C.faint} />}
-            <input ref={searchRef} value={searchQ}
-              onChange={e => setSearchQ(e.target.value)}
-              placeholder="Search songs, artists…"
-              style={{ flex: 1, background: "none", border: "none", outline: "none",
-                color: C.text, fontSize: 13.5, fontFamily: C.sans, caretColor: accent }} />
-            {searchQ && (
-              <button onClick={() => setSearchQ("")}
-                style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", padding: 0 }}>
-                <Ic d={ICONS.close} size={14} c={C.faint} />
-              </button>
-            )}
-          </div>
-          {searchQ && !searching && (
-            <p style={{ fontFamily: C.mono, fontSize: 9, color: C.faint, margin: "6px 2px 0",
-              letterSpacing: "0.06em" }}>
-              DEEZER + ITUNES · 30s PREVIEWS
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Track list */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "6px 6px",
-        scrollbarWidth: "thin", scrollbarColor: `${C.b1} transparent` }}>
-
-        {/* Library tab */}
-        {tab === "library" && (
-          <>
-            {/* Drop zone */}
-            <motion.div
-              onDragEnter={() => setDragging(true)}
-              onDragLeave={() => setDragging(false)}
-              onDragOver={e => e.preventDefault()}
-              onDrop={e => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); }}
-              style={{ margin: "4px 4px 8px", borderRadius: 14,
-                border: `1.5px dashed ${dragging ? accent : C.b1}`,
-                background: dragging ? `${accent}08` : C.b0,
-                padding: "12px", textAlign: "center", cursor: "pointer",
-                transition: "all 0.15s" }}
-              onClick={() => fileRef.current?.click()}>
-              <Ic d={ICONS.upload} size={16} c={dragging ? accent : C.sub} />
-              <p style={{ color: dragging ? accent : C.sub, fontSize: 12, margin: "5px 0 0" }}>
-                {dragging ? "Drop to add" : "Drag music files or click to browse"}
-              </p>
-              <p style={{ color: C.faint, fontSize: 10, fontFamily: C.mono, margin: "2px 0 0" }}>
-                MP3 · FLAC · WAV · AAC · M4A — plays fully
-              </p>
-            </motion.div>
-
-            {library.length > 0 && (
-              <p style={{ fontFamily: C.mono, fontSize: 9, color: C.faint,
-                letterSpacing: "0.1em", padding: "4px 8px 4px", margin: 0 }}>
-                {library.filter(t => !t.isPreview).length > 0
-                  ? `${library.filter(t => t.isLocal).length} LOCAL · ${library.filter(t => t.isPreview).length} PREVIEWS`
-                  : "TRENDING PREVIEWS · ADD LOCAL FILES FOR FULL SONGS"}
-              </p>
-            )}
-            {library.map(t => (
-              <TrackRow key={t.id} track={t}
-                active={track?.id === t.id} playing={playing}
-                onPlay={() => playTrack(t)}
-                liked={liked.has(t.id)} onLike={() => toggleLike(t.id)}
-                isPreview={t.isPreview} />
-            ))}
-          </>
-        )}
-
-        {/* Search tab */}
-        {tab === "search" && (
-          <>
-            {!searchQ && (
-              <div style={{ textAlign: "center", padding: "32px 16px" }}>
-                <Ic d={ICONS.search} size={32} c={C.faint} />
-                <p style={{ color: C.sub, fontSize: 13, margin: "12px 0 4px" }}>Search any song or artist</p>
-                <p style={{ color: C.faint, fontSize: 11, fontFamily: C.mono }}>
-                  Searches Deezer + iTunes · 30s previews
-                </p>
-              </div>
-            )}
-            {searching && (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center",
-                gap: 10, padding: "32px 0", color: C.sub, fontSize: 13 }}>
-                <div style={{ width: 18, height: 18, border: `2px solid ${accent}40`,
-                  borderTopColor: accent, borderRadius: "50%", animation: "music-spin 0.7s linear infinite" }} />
-                Searching…
-              </div>
-            )}
-            {!searching && searchQ && searchRes.length === 0 && (
-              <div style={{ textAlign: "center", padding: "32px 16px" }}>
-                <p style={{ color: C.sub, fontSize: 13 }}>No results for "{searchQ}"</p>
-              </div>
-            )}
-            {searchRes.map(t => (
-              <TrackRow key={t.id} track={t}
-                active={track?.id === t.id} playing={playing}
-                onPlay={() => playTrack(t)}
-                liked={liked.has(t.id)} onLike={() => toggleLike(t.id)}
-                isPreview={t.isPreview} />
-            ))}
-          </>
-        )}
-
-        {/* Queue tab */}
-        {tab === "queue" && (
-          <>
-            <p style={{ fontFamily: C.mono, fontSize: 9, color: C.faint,
-              letterSpacing: "0.1em", padding: "4px 8px 4px", margin: "0 0 2px" }}>
-              {queue.length} TRACK{queue.length !== 1 ? "S" : ""}
-            </p>
-            {queue.map((t, i) => (
-              <TrackRow key={t.id + "_" + i} track={t}
-                active={i === queueIdx} playing={playing}
-                onPlay={() => { setQueueIdx(i); setPlaying(true); }}
-                liked={liked.has(t.id)} onLike={() => toggleLike(t.id)}
-                isPreview={t.isPreview} />
-            ))}
-          </>
-        )}
-      </div>
-    </div>
-  );
-
   return (
     <AnimatePresence>
-      <motion.div key="music-app"
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        style={{ position: "fixed", inset: 0, bottom: "var(--taskbar-height,52px)",
-          zIndex: 50, display: "flex", flexDirection: "column", overflow: "hidden",
-          fontFamily: C.sans }}>
+      <motion.div
+        key="music-overlay"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6"
+        style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(28px)" }}
+      >
+        <motion.div
+          initial={{ scale: 0.92, y: 24 }}
+          animate={{ scale: 1, y: 0 }}
+          exit={{ scale: 0.92, y: 24 }}
+          transition={{ type: "spring", damping: 22, stiffness: 280 }}
+          className="relative w-full flex flex-col overflow-hidden"
+          style={{
+            maxWidth: 420,
+            maxHeight: "94vh",
+            background: "linear-gradient(175deg,#13111c 0%,#0b0913 100%)",
+            border: "1px solid rgba(167,139,250,0.1)",
+            boxShadow: "0 48px 96px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.04)",
+            borderRadius: 28,
+          }}
+        >
+          {/* Dynamic color wash */}
+          <div className="absolute inset-0 pointer-events-none transition-all duration-1000"
+            style={{ background: `radial-gradient(ellipse 80% 50% at 50% -10%, ${accentColor}22 0%, transparent 65%)` }} />
 
-        <style>{`
-          @keyframes music-spin { to { transform: rotate(360deg); } }
-        `}</style>
+          {/* ── HEADER ────────────────────────────────────────────────────── */}
+          <div className="relative flex items-center justify-between px-5 pt-5 pb-1 flex-shrink-0">
+            {/* Left button: queue toggle or back */}
+            <button
+              onClick={() => setView(view === "queue" ? "player" : view === "search" ? "player" : "queue")}
+              className="p-2 rounded-xl text-white/30 hover:text-white hover:bg-white/8 transition-colors"
+              aria-label="Toggle queue"
+            >
+              {view === "queue" || view === "search"
+                ? <MdClose size={18} />
+                : <MdQueueMusic size={18} />}
+            </button>
 
-        {/* Ambient background — responds to track color */}
-        <div style={{ position: "absolute", inset: 0, zIndex: 0,
-          background: `radial-gradient(ellipse 60% 50% at 30% 60%, ${accent}18 0%, transparent 60%),
-                       radial-gradient(ellipse 40% 50% at 80% 20%, ${accent}10 0%, transparent 60%),
-                       linear-gradient(160deg, #08090F 0%, #0B0D18 100%)`,
-          transition: "background 1.2s ease" }} />
+            {/* Center label */}
+            <span className="text-white/40 text-[11px] font-medium uppercase tracking-widest">
+              {view === "queue" ? "Queue" : view === "search" ? "Search" : "Now Playing"}
+            </span>
 
-        {/* ── Top bar ── */}
-        <div style={{ position: "relative", zIndex: 1, flexShrink: 0,
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "13px 18px", background: "rgba(8,9,15,0.7)",
-          backdropFilter: "blur(20px)", borderBottom: `1px solid ${C.b0}` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 32, height: 32, borderRadius: 10,
-              background: `${accent}18`, border: `1px solid ${accent}30`,
-              display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Ic d={ICONS.music} size={15} c={accent} />
-            </div>
-            <div>
-              <p style={{ fontSize: 14, fontWeight: 700, color: C.text, margin: 0 }}>Nova Music</p>
-              <p style={{ fontSize: 10, color: C.faint, margin: 0, fontFamily: C.mono }}>
-                {queue.length} tracks · {library.filter(t => t.isLocal).length} local
-              </p>
+            {/* Right: search icon + close */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setView(view === "search" ? "player" : "search")}
+                className={`p-2 rounded-xl transition-colors ${view === "search" ? "text-violet-400 bg-violet-500/15" : "text-white/30 hover:text-white hover:bg-white/8"}`}
+                aria-label="Search"
+              >
+                <FaSearch size={13} />
+              </button>
+              <button
+                onClick={() => { setIsPlaying(false); setMusicOpen(false); }}
+                className="p-2 rounded-xl text-white/30 hover:text-white hover:bg-white/8 transition-colors"
+                aria-label="Close"
+              >
+                <MdClose size={18} />
+              </button>
             </div>
           </div>
-          <motion.button whileTap={{ scale: 0.88 }}
-            onClick={() => { setPlaying(false); setMusicOpen(false); }}
-            style={{ width: 34, height: 34, borderRadius: "50%", background: C.s2,
-              border: `1px solid ${C.b0}`, display: "flex", alignItems: "center",
-              justifyContent: "center", cursor: "pointer" }}>
-            <Ic d={ICONS.close} size={15} c={C.sub} />
-          </motion.button>
-        </div>
 
-        {/* ── Main body ── */}
-        <div style={{ position: "relative", zIndex: 1, flex: 1, display: "flex",
-          flexDirection: isMobile ? "column" : "row", overflow: "hidden", minHeight: 0 }}>
+          {/* ── CONTENT AREA (scrollable) ──────────────────────────────── */}
+          <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
+            <AnimatePresence mode="wait">
 
-          {isMobile ? (
-            // Mobile: player above, panel below with tab nav
-            <>
-              <div style={{ flex: "0 0 auto", overflowY: "auto" }}>
-                <PlayerView />
-              </div>
-              <div style={{ flex: 1, borderTop: `1px solid ${C.b0}`,
-                background: "rgba(8,9,15,0.8)", backdropFilter: "blur(20px)",
-                display: "flex", flexDirection: "column", minHeight: 0 }}>
-                <SidePanel />
-              </div>
-            </>
-          ) : (
-            // Desktop: player on left, library on right
-            <>
-              <div style={{ flex: "0 0 420px", overflowY: "auto",
-                borderRight: `1px solid ${C.b0}` }}>
-                <PlayerView />
-              </div>
-              <div style={{ flex: 1, background: "rgba(8,9,15,0.75)",
-                backdropFilter: "blur(20px)", display: "flex", flexDirection: "column",
-                minHeight: 0 }}>
-                <SidePanel />
-              </div>
-            </>
-          )}
-        </div>
+              {/* ── SEARCH VIEW ─────────────────────────────────────────── */}
+              {view === "search" && (
+                <motion.div
+                  key="search-view"
+                  initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}
+                  transition={{ duration: 0.2 }}
+                  className="px-4 pt-3 pb-4"
+                >
+                  <SearchBar
+                    query={searchQuery}
+                    onChange={handleSearchChange}
+                    onClear={() => { setSearchQuery(""); setSearchResults([]); setSearchError(false); }}
+                    searching={searching}
+                  />
 
-        <audio ref={audioRef} preload="metadata" crossOrigin="anonymous" />
+                  <div className="mt-3">
+                    {/* Searching state */}
+                    {searching && !searchResults.length && (
+                      <div className="flex flex-col items-center py-10 text-white/30 gap-2">
+                        <ImSpinner8 size={24} className="animate-spin text-violet-400" />
+                        <p className="text-sm">Searching Deezer…</p>
+                      </div>
+                    )}
+
+                    {/* Error / no results */}
+                    {searchError && !searching && (
+                      <div className="flex flex-col items-center py-10 text-white/25 gap-2">
+                        <TbMusicSearch size={32} />
+                        <p className="text-sm">No results found</p>
+                        <p className="text-xs text-white/15">Try a different song or artist</p>
+                      </div>
+                    )}
+
+                    {/* Empty state — show trending prompt */}
+                    {!searchQuery && !searching && !searchError && (
+                      <div className="pt-2">
+                        <p className="text-white/25 text-xs uppercase tracking-widest font-medium mb-3 px-1">Trending</p>
+                        {tracks.slice(0, 8).map((t, i) => (
+                          <TrackRow key={t.id} track={t}
+                            isCurrent={track?.id === t.id} isPlaying={isPlaying}
+                            onSelect={() => playFromSearch(t)}
+                            liked={liked.has(t.id)} onLike={() => toggleLike(t.id)} />
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Search results */}
+                    {searchResults.length > 0 && !searching && (
+                      <div className="pt-1">
+                        <p className="text-white/25 text-xs uppercase tracking-widest font-medium mb-2 px-1">
+                          {searchResults.length} results
+                        </p>
+                        {searchResults.map((t) => (
+                          <TrackRow key={t.id} track={t}
+                            isCurrent={track?.id === t.id} isPlaying={isPlaying}
+                            onSelect={() => playFromSearch(t)}
+                            liked={liked.has(t.id)} onLike={() => toggleLike(t.id)} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+
+              {/* ── QUEUE VIEW ──────────────────────────────────────────── */}
+              {view === "queue" && (
+                <motion.div
+                  key="queue-view"
+                  initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}
+                  transition={{ duration: 0.2 }}
+                  className="px-2 pt-2 pb-4"
+                >
+                  <p className="text-white/25 text-xs uppercase tracking-widest font-medium mb-2 px-2">
+                    {tracks.length} tracks
+                  </p>
+                  {tracks.map((t, i) => (
+                    <TrackRow key={t.id} track={t}
+                      isCurrent={i === idx} isPlaying={isPlaying}
+                      onSelect={() => { setIdx(i); setIsPlaying(true); setView("player"); }}
+                      liked={liked.has(t.id)} onLike={() => toggleLike(t.id)} />
+                  ))}
+                </motion.div>
+              )}
+
+              {/* ── NOW PLAYING VIEW ────────────────────────────────────── */}
+              {view === "player" && (
+                <motion.div
+                  key="player-view"
+                  initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.2 }}
+                  className="flex flex-col items-center gap-4 px-6 pb-6 pt-2"
+                >
+                  {/* Album art */}
+                  <AnimatePresence mode="wait">
+                    <motion.div key={`art-${idx}`}
+                      initial={{ opacity: 0, scale: 0.88, y: 10 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.9, y: -8 }}
+                      transition={{ duration: 0.32, ease: [0.4, 0, 0.2, 1] }}>
+                      <AlbumArt src={track?.cover} isPlaying={isPlaying && !loading} color={accentColor} />
+                    </motion.div>
+                  </AnimatePresence>
+
+                  {/* Visualizer */}
+                  <Visualizer isPlaying={isPlaying && !loading} color={accentColor} />
+
+                  {/* Track info + like */}
+                  <div className="w-full flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <AnimatePresence mode="wait">
+                        <motion.h2 key={`title-${idx}`}
+                          initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
+                          transition={{ duration: 0.22 }}
+                          className="text-white font-bold text-xl leading-tight truncate">
+                          {loading
+                            ? <span className="inline-block h-5 w-44 bg-white/10 rounded animate-pulse" />
+                            : audioError ? "Track unavailable" : (track?.title ?? "—")}
+                        </motion.h2>
+                      </AnimatePresence>
+                      <p className="text-white/35 text-sm truncate mt-0.5">
+                        {track?.artist}{track?.album ? ` · ${track.album}` : ""}
+                      </p>
+                    </div>
+                    <button onClick={() => track && toggleLike(track.id)}
+                      className="p-1.5 flex-shrink-0 mt-0.5" aria-label="Like">
+                      <motion.div whileTap={{ scale: 1.4 }} transition={{ type: "spring", stiffness: 400 }}>
+                        {liked.has(track?.id)
+                          ? <FaHeart size={18} className="text-pink-400" />
+                          : <FaRegHeart size={18} className="text-white/20 hover:text-white/60 transition-colors" />}
+                      </motion.div>
+                    </button>
+                  </div>
+
+                  {/* Scrubber */}
+                  <div className="w-full">
+                    <Scrubber current={currentTime} duration={duration} onChange={seek} />
+                  </div>
+
+                  {/* Main transport controls */}
+                  <div className="w-full flex items-center justify-between">
+                    <motion.button whileTap={{ scale: 0.88 }} onClick={() => setShuffle((s) => !s)}
+                      style={{ color: shuffleColor }} className="p-2 transition-colors" aria-label="Shuffle">
+                      <FaRandom size={15} />
+                    </motion.button>
+
+                    <motion.button whileTap={{ scale: 0.88 }} onClick={goPrev}
+                      className="p-2 text-white/70 hover:text-white transition-colors" aria-label="Previous">
+                      <FaStepBackward size={22} />
+                    </motion.button>
+
+                    {/* Play / Pause button */}
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.93 }}
+                      onClick={() => setIsPlaying((p) => !p)}
+                      className="w-14 h-14 rounded-full flex items-center justify-center relative"
+                      style={{
+                        background: `linear-gradient(135deg, ${accentColor}, #60a5fa)`,
+                        boxShadow: `0 8px 32px ${accentColor}55`,
+                      }}
+                      aria-label={isPlaying ? "Pause" : "Play"}
+                    >
+                      <AnimatePresence mode="wait">
+                        {loading ? (
+                          <motion.div key="spin" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                            className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        ) : isPlaying ? (
+                          <motion.div key="pause" initial={{ scale: 0.6 }} animate={{ scale: 1 }}>
+                            <FaPause size={20} className="text-white" />
+                          </motion.div>
+                        ) : (
+                          <motion.div key="play" initial={{ scale: 0.6 }} animate={{ scale: 1 }} style={{ marginLeft: 2 }}>
+                            <FaPlay size={20} className="text-white" />
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </motion.button>
+
+                    <motion.button whileTap={{ scale: 0.88 }} onClick={() => goNext()}
+                      className="p-2 text-white/70 hover:text-white transition-colors" aria-label="Next">
+                      <FaStepForward size={22} />
+                    </motion.button>
+
+                    <motion.button whileTap={{ scale: 0.88 }} onClick={toggleRepeat}
+                      style={{ color: repeatColor }} className="p-2 transition-colors relative" aria-label="Repeat">
+                      <FaRedo size={15} />
+                      {repeat === "one" && (
+                        <span className="absolute -top-0.5 -right-0.5 text-[8px] font-black text-violet-300">1</span>
+                      )}
+                    </motion.button>
+                  </div>
+
+                  {/* Volume row */}
+                  <div className="w-full flex items-center gap-2.5">
+                    <button onClick={() => setMuted((m) => !m)}
+                      className="text-white/25 hover:text-white transition-colors flex-shrink-0" aria-label="Mute">
+                      {muted || volume === 0 ? <FaVolumeMute size={13} />
+                        : volume < 0.5 ? <FaVolumeDown size={13} />
+                        : <FaVolumeUp size={13} />}
+                    </button>
+                    <div className="relative flex-1 h-1 group cursor-pointer">
+                      <input type="range" min="0" max="1" step="0.01" value={muted ? 0 : volume}
+                        onChange={(e) => { setVolume(parseFloat(e.target.value)); setMuted(false); }}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" aria-label="Volume" />
+                      <div className="absolute inset-0 rounded-full bg-white/10" />
+                      <div className="absolute inset-y-0 left-0 rounded-full bg-white/35"
+                        style={{ width: `${(muted ? 0 : volume) * 100}%` }} />
+                    </div>
+                  </div>
+
+                  {/* Quick search shortcut pill */}
+                  <motion.button
+                    whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                    onClick={() => setView("search")}
+                    className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/6 border border-white/8 text-white/40 text-xs hover:text-white/60 hover:bg-white/10 transition-all"
+                  >
+                    <FaSearch size={10} />
+                    <span>Search for any song…</span>
+                  </motion.button>
+
+                  <p className="text-white/10 text-[10px] text-center">
+                    Space · ← → seek · ↑↓ vol · N next · M mute
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* ── MINI NOW PLAYING BAR (shown in search/queue views) ────── */}
+          <AnimatePresence>
+            {(view === "search" || view === "queue") && track && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
+                className="flex-shrink-0 flex items-center gap-3 mx-4 mb-4 px-3 py-2.5 rounded-2xl bg-white/6 border border-white/8"
+              >
+                <div className="w-9 h-9 rounded-lg overflow-hidden flex-shrink-0">
+                  {track.cover
+                    ? <img src={track.cover} alt="" className="w-full h-full object-cover" /> // eslint-disable-line
+                    : <div className="w-full h-full bg-white/10" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-xs font-semibold truncate">{track.title}</p>
+                  <p className="text-white/30 text-[11px] truncate">{track.artist}</p>
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <motion.button whileTap={{ scale: 0.88 }} onClick={goPrev}
+                    className="p-1.5 text-white/40 hover:text-white transition-colors" aria-label="Previous">
+                    <FaStepBackward size={13} />
+                  </motion.button>
+                  <motion.button
+                    whileTap={{ scale: 0.88 }}
+                    onClick={() => setIsPlaying((p) => !p)}
+                    className="w-8 h-8 rounded-full flex items-center justify-center"
+                    style={{ background: `linear-gradient(135deg, ${accentColor}, #60a5fa)` }}
+                    aria-label={isPlaying ? "Pause" : "Play"}
+                  >
+                    {loading
+                      ? <ImSpinner8 size={12} className="text-white animate-spin" />
+                      : isPlaying ? <FaPause size={12} className="text-white" />
+                      : <FaPlay size={12} className="text-white" style={{ marginLeft: 1 }} />}
+                  </motion.button>
+                  <motion.button whileTap={{ scale: 0.88 }} onClick={() => goNext()}
+                    className="p-1.5 text-white/40 hover:text-white transition-colors" aria-label="Next">
+                    <FaStepForward size={13} />
+                  </motion.button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Hidden audio element */}
+          <audio ref={audioRef} preload="metadata" crossOrigin="anonymous" />
+        </motion.div>
       </motion.div>
     </AnimatePresence>
   );
