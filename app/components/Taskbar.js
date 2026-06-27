@@ -20,8 +20,8 @@ import { VscGithubInverted } from "react-icons/vsc";
 import { AiFillLinkedin } from "react-icons/ai";
 import { FaTwitterSquare, FaWifi } from "react-icons/fa";
 import { BsBatteryFull } from "react-icons/bs";
-import Link from "next/link";
 import { motion } from "framer-motion";
+import { useDeparture } from "../lib/useDeparture";
 
 // ── Module-level sound helper — no hook or closure needed ────────────────────
 const playSound = () => {
@@ -75,6 +75,7 @@ const Taskbar = ({
 }) => {
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const [hovered,     setHovered]     = useState(null);
+  const { open: openLink, modal: departureModal } = useDeparture();
 
   useEffect(() => {
     const id = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -98,6 +99,7 @@ const Taskbar = ({
   const formattedDate = currentTime.toLocaleDateString([], { month: "2-digit", day: "2-digit", year: "numeric" });
 
   return (
+      <>
     <div
       className="flex items-center justify-between px-4 py-1.5 w-full backdrop-blur-2xl bg-black/40 border-t border-white/8 relative z-50"
       style={{ height: "var(--taskbar-height)" }}
@@ -142,18 +144,17 @@ const Taskbar = ({
           />
         </div>
 
-        {/* Link items */}
+        {/* Link items — intercepted by departure modal */}
         {NAV_ITEMS.filter((i) => i.href).map((item) => (
           <div key={item.id} className="relative">
-            <Link href={item.href} target="_blank" onClick={playSound}>
-              <TaskbarButtonInner
-                icon={item.icon}
-                tooltip={item.tooltip}
-                hovered={hovered === item.id}
-                onHoverStart={() => setHovered(item.id)}
-                onHoverEnd={() => setHovered(null)}
-              />
-            </Link>
+            <TaskbarButtonInner
+              icon={item.icon}
+              tooltip={item.tooltip}
+              hovered={hovered === item.id}
+              onHoverStart={() => setHovered(item.id)}
+              onHoverEnd={() => setHovered(null)}
+              onClick={() => openLink(item.href)}
+            />
           </div>
         ))}
       </div>
@@ -169,6 +170,8 @@ const Taskbar = ({
         <span className="text-white text-xs font-medium tabular-nums">{formattedTime}</span>
       </div>
     </div>
+    {departureModal}
+        </>
   );
 };
 

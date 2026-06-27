@@ -19,6 +19,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { useDeparture } from "../lib/useDeparture";
 import { FcFolder } from "react-icons/fc";
 import { VscGithubInverted } from "react-icons/vsc";
 import { BiSolidFilePdf } from "react-icons/bi";
@@ -69,6 +70,7 @@ const DesktopItems = ({
   setShowModal,
   setShowFintech,
 }) => {
+  const { open: openLink, modal: departureModal } = useDeparture();
   const [darkMode,       setDarkMode]       = useState(false);
   const [time,           setTime]           = useState(new Date());
   const [showCalendar,   setShowCalendar]   = useState(false);
@@ -106,7 +108,7 @@ const DesktopItems = ({
   const actionMap = useMemo(() => ({
     projects: () => setShowModal(true),
     ai:       () => setShowAI(true),
-    github:   () => window.open("https://github.com/dascott1990", "_blank"),
+    github:   () => openLink("https://github.com/dascott1990"),
     resume:   () => setShowResume(true),
     game:     () => setGame(true),
     music:    () => setMusicOpen(true),
@@ -207,6 +209,7 @@ const DesktopItems = ({
         {showResume  && <Resume  onClose={() => setShowResume(false)} />}
         {showContact && <Contact onClose={() => setShowContact(false)} />}
       </AnimatePresence>
+      {departureModal}
 
       {/*/!* Dark mode toggle *!/*/}
       {/*<motion.button*/}

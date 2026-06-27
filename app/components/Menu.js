@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { useDeparture } from "../lib/useDeparture";
 import { FcBullish, FcGraduationCap, FcCollaboration, FcFolder } from "react-icons/fc";
 import { BiSolidFilePdf, BiChevronUp, BiChevronDown } from "react-icons/bi";
 import { FiSearch, FiX } from "react-icons/fi";
@@ -50,6 +51,7 @@ const Menu = ({
   setShowCamera, setShowAssetNews, setShowContact,
   setShowResume,
 }) => {
+  const { open: openLink, modal: departureModal } = useDeparture();
   const [search,  setSearch]  = useState("");
   const [focused, setFocused] = useState(null);
   const searchRef = useRef(null);
@@ -77,7 +79,7 @@ const Menu = ({
       camera:     () => setShowCamera?.(true),
       assets:     () => setShowAssetNews?.(true),
       contact:    () => setShowContact?.(true),
-      github:     () => window.open("https://github.com/dascott1990", "_blank"),
+      github:     () => openLink("https://github.com/dascott1990"),
     };
     map[id]?.();
   }, [
@@ -94,7 +96,9 @@ const Menu = ({
   const isFiltering = search.trim().length > 0;
 
   return (
-    <div className="flex flex-col items-center justify-center flex-grow pointer-events-none">
+    <>
+      {departureModal}
+      <div className="flex flex-col items-center justify-center flex-grow pointer-events-none">
       <AnimatePresence>
         {isStartMenuOpen && screen && (
           <motion.div
@@ -147,14 +151,14 @@ const Menu = ({
               )}
               {isFiltering && filtered.length > 0 && (
                 <><SectionLabel label={`${filtered.length} result${filtered.length !== 1 ? "s" : ""}`} />
-                  <AppGrid apps={filtered} focused={focused} onAppClick={handleAppClick} /></>
+                  <AppGrid apps={filtered} focused={focused} onAppClick={handleAppClick} openLink={openLink} /></>
               )}
               {!isFiltering && (
                 <>
                   <SectionLabel label="Work & Portfolio" />
-                  <AppGrid apps={workApps} focused={focused} onAppClick={handleAppClick} />
+                  <AppGrid apps={workApps} focused={focused} onAppClick={handleAppClick} openLink={openLink} />
                   <SectionLabel label="Applications" className="mt-2" />
-                  <AppGrid apps={otherApps} focused={focused} onAppClick={handleAppClick} />
+                  <AppGrid apps={otherApps} focused={focused} onAppClick={handleAppClick} openLink={openLink} />
                 </>
               )}
             </div>
@@ -207,16 +211,16 @@ const Menu = ({
                         </dd>
                       </dl>
                       <div className="flex gap-2 mt-2 pt-2" style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-                        <a href="https://github.com/dascott1990" target="_blank" rel="noopener noreferrer"
+                        <button onClick={() => openLink("https://github.com/dascott1990")}
                           className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] text-gray-400 hover:text-white transition-colors"
-                          style={{ background: "rgba(255,255,255,0.06)" }}>
+                          style={{ background: "rgba(255,255,255,0.06)", border: "none", cursor: "pointer" }}>
                           <VscGithubInverted size={11} /> GitHub
-                        </a>
-                        <a href="https://www.linkedin.com/in/rasheed-tajudeen-614606374" target="_blank" rel="noopener noreferrer"
+                        </button>
+                        <button onClick={() => openLink("https://www.linkedin.com/in/rasheed-tajudeen-614606374/")}
                           className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] text-gray-400 hover:text-white transition-colors"
-                          style={{ background: "rgba(255,255,255,0.06)" }}>
+                          style={{ background: "rgba(255,255,255,0.06)", border: "none", cursor: "pointer" }}>
                           <span className="text-[#0A66C2] font-bold text-[10px]">in</span> LinkedIn
-                        </a>
+                        </button>
                       </div>
                     </div>
                   </motion.div>
@@ -227,6 +231,7 @@ const Menu = ({
         )}
       </AnimatePresence>
     </div>
+    </>
   );
 };
 
@@ -236,16 +241,16 @@ const SectionLabel = ({ label, className = "" }) => (
   </p>
 );
 
-const AppGrid = ({ apps, focused, onAppClick }) => (
+const AppGrid = ({ apps, focused, onAppClick, openLink }) => (
   <div className="grid gap-0.5 mb-1" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))" }}>
     {apps.map((app, i) => (
       <AppTile key={app.id} app={app} isFocused={focused === app.id}
-        delay={i * 0.012} onClick={() => onAppClick(app.id)} />
+        delay={i * 0.012} onClick={() => onAppClick(app.id)} openLink={openLink} />
     ))}
   </div>
 );
 
-const AppTile = ({ app, isFocused, delay, onClick }) => {
+const AppTile = ({ app, isFocused, delay, onClick, openLink }) => {
   const content = (
     <motion.div
       initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
@@ -269,7 +274,7 @@ const AppTile = ({ app, isFocused, delay, onClick }) => {
     </motion.div>
   );
   if (app.type === "link") {
-    return <Link href={app.href} target="_blank" rel="noopener noreferrer" onClick={onClick}>{content}</Link>;
+    return <span onClick={() => { onClick(); openLink?.(app.href); }}>{content}</span>;
   }
   return content;
 };

@@ -3,10 +3,11 @@ import AnimatedItem from "./AnimatedItem";
 import { MdOutlineClose } from "react-icons/md";
 import Image from "next/image";
 import { BsChevronLeft } from "react-icons/bs";
-import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
+import { useDeparture } from "../lib/useDeparture";
 
 const Projects = ({ showModal, setShowModal }) => {
+  const { open: openLink, modal: departureModal } = useDeparture();
   const [sureplug, setSureplug] = useState(false);
   const [scam, setScam] = useState(false);
   const [track, setTrack] = useState(false);
@@ -14,8 +15,8 @@ const Projects = ({ showModal, setShowModal }) => {
   const [statesapi, setStatesapi] = useState(false);
   const [heart, setHeart] = useState(false);
   const [qr, setQR] = useState(false);
-  
-  return (
+
+  return (<>
     <AnimatePresence>
       {showModal && (
         <motion.div
@@ -88,13 +89,11 @@ const Projects = ({ showModal, setShowModal }) => {
                     <p className="text-gray-700 text-sm mb-4">
                       Built with React Native, Expo Router, Reanimated 3, Zustand, MMKV, Clerk Auth, CoinMarketCap API, Victory Native, Styled Components, NativeBase, TypeScript.{" "}
                     </p>
-                    <Link
-                      href="https://github.com/Dascott1990/FinTech-FusionPay"
-                      target="_blank"
-                      className="text-blue-600 text-sm mb-5 hover:underline"
-                    >
+                    <button onClick={() => openLink("https://github.com/Dascott1990/FinTech-FusionPay")}
+                      className="text-blue-600 text-sm mb-5 hover:underline text-left"
+                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
                       Fintech App
-                    </Link>
+                    </button>
                     <h2 className="text-lg font-semibold text-gray-800 mb-2">
                       About FusionPay
                     </h2>
@@ -139,13 +138,11 @@ const Projects = ({ showModal, setShowModal }) => {
                     <p className="text-gray-700 text-sm mb-4">
                       Open-Source Payment Orchestration{" "}
                     </p>
-                    <Link
-                      href="https://hyperswitch.io/"
-                      target="_blank"
-                      className="text-blue-600 text-sm mb-5 hover:underline"
-                    >
+                    <button onClick={() => openLink("https://hyperswitch.io/")}
+                      className="text-blue-600 text-sm mb-5 hover:underline text-left"
+                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
                       Hyperswitch.io
-                    </Link>
+                    </button>
                     <h2 className="text-lg font-semibold text-gray-800 mb-2">
                       About Hyperswitch
                     </h2>
@@ -176,13 +173,11 @@ const Projects = ({ showModal, setShowModal }) => {
                     <p className="text-gray-700 text-sm mb-4">
                       Durable Workflow System (Open Source){" "}
                     </p>
-                    <Link
-                      href="https://github.com/Dascott1990/cron-transact-py/tree/main"
-                      target="_blank"
-                      className="text-blue-600 text-sm mb-5 hover:underline"
-                    >
+                    <button onClick={() => openLink("https://github.com/Dascott1990/cron-transact-py/tree/main")}
+                      className="text-blue-600 text-sm mb-5 hover:underline text-left"
+                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
                       Github Repository
-                    </Link>
+                    </button>
                     <h2 className="text-lg font-semibold text-gray-800 mb-2">
                       About DBOS Transact
                     </h2>
@@ -215,13 +210,11 @@ const Projects = ({ showModal, setShowModal }) => {
                     <p className="text-gray-700 text-sm mb-4">
                       Flask, PostgreSQL, HTML, CSS, Bootstrap, JavaScript, Heroku, GitHub CI/CD, REST API, Flask-Login.{" "}
                     </p>
-                    <Link
-                      href="https://github.com/Dascott1990/blog-project"
-                      target="_blank"
-                      className="text-blue-600 text-sm mb-5 hover:underline"
-                    >
+                    <button onClick={() => openLink("https://github.com/Dascott1990/blog-project")}
+                      className="text-blue-600 text-sm mb-5 hover:underline text-left"
+                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
                       daskBlog
-                    </Link> 
+                    </button>
                     <h2 className="text-lg font-semibold text-gray-800 mb-2">
                       About Dask Blog
                     </h2>
@@ -407,9 +400,9 @@ const Projects = ({ showModal, setShowModal }) => {
                         className="flex flex-col cursor-pointer bg-white p-3 rounded-sm border border-gray-200 hover:border-blue-300 transition-all"
                       >
                         <div className="flex gap-3">
-                          <Image 
-                            src="/scam.png" 
-                            width={60} 
+                          <Image
+                            src="/scam.png"
+                            width={60}
                             height={60}
                             className="rounded-sm border border-gray-200"
                             alt="Hyperswitch"
@@ -435,9 +428,9 @@ const Projects = ({ showModal, setShowModal }) => {
                         className="flex flex-col cursor-pointer bg-white p-3 rounded-sm border border-gray-200 hover:border-blue-300 transition-all"
                       >
                         <div className="flex gap-3">
-                          <Image 
-                            src="/dobs.png" 
-                            width={60} 
+                          <Image
+                            src="/dobs.png"
+                            width={60}
                             height={60}
                             className="rounded-sm border border-gray-200"
                             alt="DBOS"
@@ -491,9 +484,9 @@ const Projects = ({ showModal, setShowModal }) => {
                         className="flex flex-col cursor-pointer bg-white p-3 rounded-sm border border-gray-200 hover:border-blue-300 transition-all"
                       >
                         <div className="flex gap-3">
-                          <Image 
-                            src="/canadaflag.png" 
-                            width={60} 
+                          <Image
+                            src="/canadaflag.png"
+                            width={60}
                             height={60}
                             className="rounded-sm border border-gray-200"
                             alt="States API"
@@ -571,7 +564,8 @@ const Projects = ({ showModal, setShowModal }) => {
         </motion.div>
       )}
     </AnimatePresence>
-  );
+    {departureModal}
+  </>);
 };
 
 export default Projects;
