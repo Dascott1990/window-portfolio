@@ -7,7 +7,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useDeparture } from "../lib/useDeparture";
 
 const Projects = ({ showModal, setShowModal }) => {
-  const { open: openLink, modal: departureModal } = useDeparture();
+  const { open: _openLink, portal: departurePortal } = useDeparture();
+  const openLink = (url) => {
+    try { new Audio("/click.wav").play(); } catch {}
+    _openLink(url);
+  };
   const [sureplug, setSureplug] = useState(false);
   const [scam, setScam] = useState(false);
   const [track, setTrack] = useState(false);
@@ -89,11 +93,7 @@ const Projects = ({ showModal, setShowModal }) => {
                     <p className="text-gray-700 text-sm mb-4">
                       Built with React Native, Expo Router, Reanimated 3, Zustand, MMKV, Clerk Auth, CoinMarketCap API, Victory Native, Styled Components, NativeBase, TypeScript.{" "}
                     </p>
-                    <button onClick={() => openLink("https://github.com/Dascott1990/FinTech-FusionPay")}
-                      className="text-blue-600 text-sm mb-5 hover:underline text-left"
-                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
-                      Fintech App
-                    </button>
+                    <button onClick={() => openLink("https://github.com/Dascott1990/FinTech-FusionPay")} className="text-blue-600 text-sm mb-5 hover:underline" style={{ background:"none", border:"none", padding:0, cursor:"pointer" }}>Fintech App</button>
                     <h2 className="text-lg font-semibold text-gray-800 mb-2">
                       About FusionPay
                     </h2>
@@ -138,11 +138,7 @@ const Projects = ({ showModal, setShowModal }) => {
                     <p className="text-gray-700 text-sm mb-4">
                       Open-Source Payment Orchestration{" "}
                     </p>
-                    <button onClick={() => openLink("https://hyperswitch.io/")}
-                      className="text-blue-600 text-sm mb-5 hover:underline text-left"
-                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
-                      Hyperswitch.io
-                    </button>
+                    <button onClick={() => openLink("https://hyperswitch.io/")} className="text-blue-600 text-sm mb-5 hover:underline" style={{ background:"none", border:"none", padding:0, cursor:"pointer" }}>Hyperswitch.io</button>
                     <h2 className="text-lg font-semibold text-gray-800 mb-2">
                       About Hyperswitch
                     </h2>
@@ -173,11 +169,7 @@ const Projects = ({ showModal, setShowModal }) => {
                     <p className="text-gray-700 text-sm mb-4">
                       Durable Workflow System (Open Source){" "}
                     </p>
-                    <button onClick={() => openLink("https://github.com/Dascott1990/cron-transact-py/tree/main")}
-                      className="text-blue-600 text-sm mb-5 hover:underline text-left"
-                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
-                      Github Repository
-                    </button>
+                    <button onClick={() => openLink("https://github.com/Dascott1990/cron-transact-py/tree/main")} className="text-blue-600 text-sm mb-5 hover:underline" style={{ background:"none", border:"none", padding:0, cursor:"pointer" }}>Github Repository</button>
                     <h2 className="text-lg font-semibold text-gray-800 mb-2">
                       About DBOS Transact
                     </h2>
@@ -210,11 +202,7 @@ const Projects = ({ showModal, setShowModal }) => {
                     <p className="text-gray-700 text-sm mb-4">
                       Flask, PostgreSQL, HTML, CSS, Bootstrap, JavaScript, Heroku, GitHub CI/CD, REST API, Flask-Login.{" "}
                     </p>
-                    <button onClick={() => openLink("https://github.com/Dascott1990/blog-project")}
-                      className="text-blue-600 text-sm mb-5 hover:underline text-left"
-                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
-                      daskBlog
-                    </button>
+                    <button onClick={() => openLink("https://github.com/Dascott1990/blog-project")} className="text-blue-600 text-sm mb-5 hover:underline" style={{ background:"none", border:"none", padding:0, cursor:"pointer" }}>daskBlog</button>
                     <h2 className="text-lg font-semibold text-gray-800 mb-2">
                       About Dask Blog
                     </h2>
@@ -564,8 +552,9 @@ const Projects = ({ showModal, setShowModal }) => {
         </motion.div>
       )}
     </AnimatePresence>
-    {departureModal}
-  </>);
+    {departurePortal}
+  </>
+  );
 };
 
 export default Projects;

@@ -70,7 +70,11 @@ const DesktopItems = ({
   setShowModal,
   setShowFintech,
 }) => {
-  const { open: openLink, modal: departureModal } = useDeparture();
+  const { open: _openLink, portal: departurePortal } = useDeparture();
+  const openLink = useCallback((url) => {
+    try { new Audio("/click.wav").play(); } catch {}
+    _openLink(url);
+  }, [_openLink]);
   const [darkMode,       setDarkMode]       = useState(false);
   const [time,           setTime]           = useState(new Date());
   const [showCalendar,   setShowCalendar]   = useState(false);
@@ -209,7 +213,7 @@ const DesktopItems = ({
         {showResume  && <Resume  onClose={() => setShowResume(false)} />}
         {showContact && <Contact onClose={() => setShowContact(false)} />}
       </AnimatePresence>
-      {departureModal}
+      {departurePortal}
 
       {/*/!* Dark mode toggle *!/*/}
       {/*<motion.button*/}

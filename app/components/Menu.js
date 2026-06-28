@@ -10,7 +10,6 @@ import {
 } from "react-icons/fa";
 import { MdEmail } from "react-icons/md";
 import { VscGithubInverted } from "react-icons/vsc";
-import Link from "next/link";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -51,10 +50,16 @@ const Menu = ({
   setShowCamera, setShowAssetNews, setShowContact,
   setShowResume,
 }) => {
-  const { open: openLink, modal: departureModal } = useDeparture();
+  const { open: _openLink, portal: departurePortal } = useDeparture();
   const [search,  setSearch]  = useState("");
   const [focused, setFocused] = useState(null);
   const searchRef = useRef(null);
+
+  // Wrapper: plays sound once then opens modal
+  const openLink = useCallback((url) => {
+    try { new Audio("/click.wav").play(); } catch {}
+    _openLink(url);
+  }, [_openLink]);
 
   useEffect(() => {
     if (isStartMenuOpen) setTimeout(() => searchRef.current?.focus(), 120);
@@ -96,9 +101,8 @@ const Menu = ({
   const isFiltering = search.trim().length > 0;
 
   return (
-    <>
-      {departureModal}
-      <div className="flex flex-col items-center justify-center flex-grow pointer-events-none">
+      <>
+    <div className="flex flex-col items-center justify-center flex-grow pointer-events-none">
       <AnimatePresence>
         {isStartMenuOpen && screen && (
           <motion.div
@@ -231,8 +235,10 @@ const Menu = ({
         )}
       </AnimatePresence>
     </div>
-    </>
+    {departurePortal}
+        </>
   );
+
 };
 
 const SectionLabel = ({ label, className = "" }) => (
@@ -274,7 +280,7 @@ const AppTile = ({ app, isFocused, delay, onClick, openLink }) => {
     </motion.div>
   );
   if (app.type === "link") {
-    return <span onClick={() => { onClick(); openLink?.(app.href); }}>{content}</span>;
+    return <span style={{ cursor: "pointer" }} onClick={() => { onClick(); openLink?.(app.href); }}>{content}</span>;
   }
   return content;
 };

@@ -75,7 +75,8 @@ const Taskbar = ({
 }) => {
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const [hovered,     setHovered]     = useState(null);
-  const { open: openLink, modal: departureModal } = useDeparture();
+  const { open: _openLink, portal: departurePortal } = useDeparture();
+  const openLink = useCallback((url) => { playSound(); _openLink(url); }, [_openLink]);
 
   useEffect(() => {
     const id = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -99,7 +100,6 @@ const Taskbar = ({
   const formattedDate = currentTime.toLocaleDateString([], { month: "2-digit", day: "2-digit", year: "numeric" });
 
   return (
-      <>
     <div
       className="flex items-center justify-between px-4 py-1.5 w-full backdrop-blur-2xl bg-black/40 border-t border-white/8 relative z-50"
       style={{ height: "var(--taskbar-height)" }}
@@ -144,7 +144,7 @@ const Taskbar = ({
           />
         </div>
 
-        {/* Link items — intercepted by departure modal */}
+        {/* Link items */}
         {NAV_ITEMS.filter((i) => i.href).map((item) => (
           <div key={item.id} className="relative">
             <TaskbarButtonInner
@@ -157,6 +157,7 @@ const Taskbar = ({
             />
           </div>
         ))}
+        {departurePortal}
       </div>
 
       {/* Right: clock */}
@@ -170,8 +171,6 @@ const Taskbar = ({
         <span className="text-white text-xs font-medium tabular-nums">{formattedTime}</span>
       </div>
     </div>
-    {departureModal}
-        </>
   );
 };
 
