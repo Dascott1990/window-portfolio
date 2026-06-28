@@ -9,6 +9,7 @@ from .files          import files_bp
 from .ai             import ai_bp
 from .wallet         import wallet_bp
 from .finance        import finance_bp
+from .resume import resume_bp
 
 def register_blueprints(app):
     prefix = "/api/v1"
@@ -23,3 +24,4 @@ def register_blueprints(app):
     app.register_blueprint(ai_bp,           url_prefix=f"{prefix}/ai")
     app.register_blueprint(wallet_bp,       url_prefix=f"{prefix}/wallet")
     app.register_blueprint(finance_bp,      url_prefix=f"{prefix}/finance")
+    app.register_blueprint(resume_bp,       url_prefix=f"{prefix}/resume")

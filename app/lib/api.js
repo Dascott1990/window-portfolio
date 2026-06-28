@@ -26,7 +26,17 @@ export const eventsAPI = {
   update:      (id, data)    => request(`/api/v1/events/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   remove:      (id)          => request(`/api/v1/events/${id}`, { method: "DELETE" }),
 };
-
+// ── Add this block to app/lib/api.js ──────────────────────────────────────────
+export const resumeAPI = {
+  generate: (userInfo, jobDescription) =>
+    request("/api/v1/resume/generate", {
+      method: "POST",
+      body: JSON.stringify({ user_info: userInfo, job_description: jobDescription }),
+    }),
+  list:   ()   => request("/api/v1/resume/saved"),
+  get:    (id) => request(`/api/v1/resume/${id}`),
+  remove: (id) => request(`/api/v1/resume/${id}`, { method: "DELETE" }),
+};
 export const cameraAPI = {
   savePhoto: ({ dataUrl, mode, caption, filterName, overlayData }) =>
     request("/api/v1/camera/photo", {
