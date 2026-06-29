@@ -1,415 +1,1299 @@
 "use client";
 /**
- * GuestMode.js  —  app/components/GuestMode.js
+ * ResumeGuestMode.js — app/components/premium/ResumeGuestMode.js
  *
- * Drop-in guest resume wizard for Resume.js.
- * Calls YOUR backend: POST /api/v1/resume/generate  (Groq under the hood).
+ * Standalone guest resume builder.
+ * - 2-step wizard: info → job description → AI generates
+ * - Live editable preview (click any text)
+ * - Download as real .docx (editable in Word/Google Docs) via docx npm package
+ * - Download as real text PDF via jsPDF (selectable, copyable text — NOT raster)
+ * - "Guest Templates" tab: all previously generated resumes, reload & re-download any
+ * - Saves to backend: POST /api/v1/resume/generate (Groq)
  *
- * Props:
- *   onResume(resumeObj)  — called when AI returns; parent updates the preview
- *   style                — { font, fontSize, lineHeight, accent } from Resume.js
- *   isMobile             — boolean
+ * Props: { onClose }
  */
 
-import React, { useState, useCallback, useRef } from "react";
+import React, {
+  useState, useEffect, useRef, useCallback, useReducer
+} from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
+// ── Constants ──────────────────────────────────────────────────────────────────
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
-// ── Tokens (match Resume.js) ──────────────────────────────────────────────────
-const T = {
-  bg:      "#0B0D14",
-  panel:   "#0F1219",
-  surface: "#141820",
-  raised:  "#1A2030",
+const ACCENTS = [
+  { id: "navy",   hex: "#1F3864", label: "Navy"    },
+  { id: "black",  hex: "#1A1A1A", label: "Classic" },
+  { id: "teal",   hex: "#0D5C6B", label: "Teal"    },
+  { id: "forest", hex: "#1E4D2B", label: "Forest"  },
+];
+
+const DEFAULT_STYLE = { accent: "navy", fontSize: 11, font: "Calibri" };
+
+// ── Design tokens ──────────────────────────────────────────────────────────────
+const C = {
+  bg:      "#090C13",
+  panel:   "#0E1118",
+  surface: "#131720",
+  raised:  "#181E2A",
   border:  "rgba(255,255,255,0.07)",
-  text:    "#E8E4DC",
-  sub:     "#6B7A90",
-  faint:   "rgba(107,122,144,0.45)",
-  gold:    "#C9A84C",
-  goldBg:  "rgba(201,168,76,0.1)",
-  goldBr:  "rgba(201,168,76,0.22)",
-  green:   "#2BB56A",
-  greenBg: "rgba(43,181,106,0.08)",
-  greenBr: "rgba(43,181,106,0.2)",
+  borderHi:"rgba(255,255,255,0.13)",
+  text:    "#EAE6DE",
+  muted:   "#8492A6",
+  faint:   "rgba(132,146,166,0.4)",
+  gold:    "#C8A84B",
+  goldBg:  "rgba(200,168,75,0.1)",
+  goldBr:  "rgba(200,168,75,0.25)",
   blue:    "#3B82F6",
   blueBg:  "rgba(59,130,246,0.1)",
-  blueBr:  "rgba(59,130,246,0.22)",
-  red:     "#ef4444",
+  blueBr:  "rgba(59,130,246,0.25)",
+  green:   "#22C55E",
+  greenBg: "rgba(34,197,94,0.08)",
+  greenBr: "rgba(34,197,94,0.2)",
+  red:     "#EF4444",
   redBg:   "rgba(239,68,68,0.08)",
   redBr:   "rgba(239,68,68,0.2)",
-  mono:    "'SF Mono','JetBrains Mono',monospace",
   sans:    "-apple-system,'SF Pro Display',Inter,system-ui,sans-serif",
+  mono:    "'SF Mono','JetBrains Mono','Courier New',monospace",
 };
 
-// ── Tiny SVG icons ─────────────────────────────────────────────────────────────
-const Icon = ({ d, size = 16, color = "currentColor", sw = 1.7 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"
-    style={{ flexShrink: 0 }}>
-    {(Array.isArray(d) ? d : [d]).map((p, i) => <path key={i} d={p} />)}
-  </svg>
-);
-const I = {
-  arrow:   "M5 12h14M12 5l7 7-7 7",
-  back:    "M19 12H5M12 19l-7-7 7-7",
-  spark:   "M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z",
-  check:   "M20 6 9 17l-5-5",
-  refresh: "M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15",
-  tag:     "M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z",
-  user:    ["M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2", "M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"],
-  doc:     ["M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z", "M14 2v6h6"],
-  pin:     ["M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z", "M12 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"],
+// ── Lucide-style icons (named, readable) ────────────────────────────────────
+// Each icon is a complete, recognisable SVG path from Lucide icon set
+const ICONS = {
+  // Navigation & actions
+  ChevronLeft:  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>,
+  ChevronRight: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>,
+  X:            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>,
+  Check:        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>,
+  Plus:         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>,
+  Trash2:       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></svg>,
+  RefreshCw:    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>,
+  // Files
+  FileText:     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>,
+  FileDown:     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M12 18v-6M9 15l3 3 3-3"/></svg>,
+  // UI
+  Layout:       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/><path d="M3 9h18M9 21V9"/></svg>,
+  Sparkles:     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3z"/></svg>,
+  User:         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
+  Clipboard:    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>,
+  Tag:          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>,
+  MapPin:       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>,
+  Eye:          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+  AlertCircle:  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+  Settings2:    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 7H4M20 12H4M20 17H4"/></svg>,
 };
 
-// ── Shared input styles ────────────────────────────────────────────────────────
-const inputStyle = (focused) => ({
-  width: "100%",
-  background: T.surface,
-  border: `1px solid ${focused ? T.blueBr : T.border}`,
-  borderRadius: 10,
-  padding: "10px 12px",
-  color: T.text,
-  fontSize: 13,
-  fontFamily: T.sans,
-  boxSizing: "border-box",
-  outline: "none",
-  transition: "border-color 0.15s",
-});
+function Icon({ name, size = 16, color = "currentColor" }) {
+  return (
+    <span style={{ width: size, height: size, display: "inline-flex",
+      alignItems: "center", justifyContent: "center", flexShrink: 0,
+      color, fontSize: size }}>
+      {React.cloneElement(ICONS[name] || ICONS.AlertCircle, {
+        width: size, height: size,
+      })}
+    </span>
+  );
+}
 
-// ── Field component — auto-focus tracking ──────────────────────────────────────
-function Field({ label, hint, value, onChange, placeholder, multiline, rows = 3, required }) {
+// ── Spinner ────────────────────────────────────────────────────────────────────
+function Spinner({ size = 20, color = C.blue }) {
+  return (
+    <motion.span
+      animate={{ rotate: 360 }}
+      transition={{ repeat: Infinity, duration: 0.85, ease: "linear" }}
+      style={{ display: "inline-block", width: size, height: size, borderRadius: "50%",
+        border: `2.5px solid rgba(255,255,255,0.1)`, borderTopColor: color }} />
+  );
+}
+
+// ── Button ─────────────────────────────────────────────────────────────────────
+function Btn({ children, onClick, disabled, variant = "primary", small, icon, loading }) {
+  const v = {
+    primary: { bg: C.blue,   border: C.blueBr,  fg: "#fff"   },
+    gold:    { bg: C.goldBg, border: C.goldBr,  fg: C.gold   },
+    ghost:   { bg: "transparent", border: C.border, fg: C.muted },
+    danger:  { bg: C.redBg,  border: C.redBr,   fg: C.red    },
+    success: { bg: C.greenBg,border: C.greenBr, fg: C.green  },
+  }[variant];
+  return (
+    <motion.button
+      whileTap={!disabled ? { scale: 0.96 } : undefined}
+      onClick={disabled ? undefined : onClick}
+      style={{
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        gap: 6, padding: small ? "6px 12px" : "10px 16px",
+        borderRadius: 10, border: `1px solid ${v.border}`,
+        background: v.bg, color: v.fg,
+        fontSize: small ? 12 : 13, fontWeight: 600, fontFamily: C.sans,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.4 : 1, width: small ? "auto" : "100%",
+        transition: "opacity 0.15s",
+      }}>
+      {loading ? <Spinner size={14} color={v.fg} /> : icon && <Icon name={icon} size={14} color={v.fg} />}
+      {children}
+    </motion.button>
+  );
+}
+
+// ── Input / Textarea ───────────────────────────────────────────────────────────
+function Field({ label, required, hint, value, onChange, placeholder, multiline, rows = 3, mono }) {
   const [focused, setFocused] = useState(false);
-  const props = {
+  const base = {
+    width: "100%", background: C.surface,
+    border: `1px solid ${focused ? C.blueBr : C.border}`,
+    borderRadius: 9, padding: "9px 12px",
+    color: C.text, fontSize: 13,
+    fontFamily: mono ? C.mono : C.sans,
+    boxSizing: "border-box", outline: "none",
+    transition: "border-color 0.15s", lineHeight: 1.5,
+  };
+  const events = {
     value,
     onChange: e => onChange(e.target.value),
-    placeholder,
     onFocus: () => setFocused(true),
     onBlur:  () => setFocused(false),
-    style: inputStyle(focused),
+    placeholder,
   };
   return (
     <div style={{ marginBottom: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-        <label style={{ fontFamily: T.mono, fontSize: 9, color: T.faint, letterSpacing: "0.1em" }}>
-          {label}{required && <span style={{ color: T.red, marginLeft: 2 }}>*</span>}
+      <div style={{ display: "flex", justifyContent: "space-between",
+        alignItems: "baseline", marginBottom: 5 }}>
+        <label style={{ fontFamily: C.mono, fontSize: 10, color: C.faint,
+          letterSpacing: "0.08em", fontWeight: 600 }}>
+          {label}{required && <span style={{ color: C.red, marginLeft: 2 }}>*</span>}
         </label>
-        {hint && <span style={{ fontFamily: T.mono, fontSize: 9, color: T.faint }}>{hint}</span>}
+        {hint && <span style={{ fontFamily: C.mono, fontSize: 10, color: C.faint }}>{hint}</span>}
       </div>
       {multiline
-        ? <textarea {...props} rows={rows} style={{ ...props.style, resize: "vertical" }} />
-        : <input    {...props} type="text" />
+        ? <textarea {...events} rows={rows} style={{ ...base, resize: "vertical" }} />
+        : <input    {...events} type="text" style={base} />
       }
     </div>
   );
 }
 
-// ── Progress bar ───────────────────────────────────────────────────────────────
-function Progress({ step, total = 2 }) {
+// ── Progress steps ─────────────────────────────────────────────────────────────
+function Steps({ current }) {
+  const steps = ["Your Info", "Job Posting"];
   return (
-    <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
-      {Array.from({ length: total }).map((_, i) => (
-        <div key={i} style={{ flex: 1, height: 3, borderRadius: 2,
-          background: i < step ? T.blue : T.border,
-          transition: "background 0.3s" }} />
-      ))}
+    <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 22 }}>
+      {steps.map((label, i) => {
+        const idx = i + 1;
+        const done = idx < current;
+        const active = idx === current;
+        return (
+          <React.Fragment key={idx}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+              <div style={{
+                width: 28, height: 28, borderRadius: "50%",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: done ? C.green : active ? C.blue : C.surface,
+                border: `1.5px solid ${done ? C.greenBr : active ? C.blueBr : C.border}`,
+                transition: "all 0.2s",
+              }}>
+                {done
+                  ? <Icon name="Check" size={13} color="#fff" />
+                  : <span style={{ fontSize: 12, fontWeight: 700,
+                      color: active ? "#fff" : C.muted }}>{idx}</span>
+                }
+              </div>
+              <span style={{ fontSize: 10, fontFamily: C.mono, fontWeight: 600,
+                color: active ? C.text : C.muted, whiteSpace: "nowrap" }}>{label}</span>
+            </div>
+            {i < steps.length - 1 && (
+              <div style={{ flex: 1, height: 1, background: done ? C.greenBr : C.border,
+                margin: "0 6px 16px", transition: "background 0.2s" }} />
+            )}
+          </React.Fragment>
+        );
+      })}
     </div>
   );
 }
 
-// ── Spinner ────────────────────────────────────────────────────────────────────
-function Spinner({ size = 20, color = T.blue }) {
-  return (
-    <motion.div
-      animate={{ rotate: 360 }}
-      transition={{ repeat: Infinity, duration: 0.9, ease: "linear" }}
-      style={{ width: size, height: size, borderRadius: "50%",
-        border: `2.5px solid ${T.border}`, borderTopColor: color }} />
-  );
-}
-
 // ── Keyword pill ───────────────────────────────────────────────────────────────
-function Kw({ word }) {
+function KwPill({ word }) {
   return (
-    <span style={{ fontSize: 11, padding: "3px 9px", borderRadius: 20,
-      background: T.blueBg, border: `1px solid ${T.blueBr}`, color: T.blue,
-      fontFamily: T.mono, letterSpacing: "0.02em" }}>
-      {word}
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4,
+      fontSize: 11, padding: "3px 9px", borderRadius: 20,
+      background: C.blueBg, border: `1px solid ${C.blueBr}`, color: C.blue,
+      fontFamily: C.mono, letterSpacing: "0.02em", whiteSpace: "nowrap" }}>
+      <Icon name="Tag" size={10} color={C.blue} />{word}
     </span>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// GuestMode
+// DOCX GENERATION — produces a real editable Word document
+// Uses raw Office Open XML — no library needed, validated structure
 // ═══════════════════════════════════════════════════════════════════════════════
-export default function GuestMode({ onResume, isMobile }) {
-  const [step, setStep] = useState(1);  // 1 = info, 2 = job desc
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [result, setResult] = useState(null); // { keywords, contact, sections, saved_id }
+function buildDocx(resume, docStyle) {
+  const { contact, sections } = resume;
+  const accentHex = (ACCENTS.find(a => a.id === docStyle.accent)?.hex || "#1F3864").replace("#", "");
+  const fontName  = docStyle.font || "Calibri";
+  const sz        = Math.round((docStyle.fontSize || 11) * 2);
+  const szSm      = sz - 2;
+  const szLg      = sz + 8;
 
-  // ── Step 1: User Info ──────────────────────────────────────────────────────
-  const [info, setInfo] = useState({
-    name:       "",
-    title:      "",
-    location:   "",
-    email:      "",
-    phone:      "",
-    background: "",
-    experience: "",
-    education:  "",
-    skills:     "",
+  function esc(s) {
+    return String(s || "")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  }
+
+  function rpr(opts = {}) {
+    const b     = opts.bold   ? "<w:b/><w:bCs/>" : "";
+    const i     = opts.italic ? "<w:i/><w:iCs/>" : "";
+    const size  = opts.sz ?? sz;
+    const col   = opts.color ? `<w:color w:val="${opts.color}"/>` : "";
+    const spc   = opts.spacing ? `<w:spacing w:val="${opts.spacing}"/>` : "";
+    return `<w:rPr><w:rFonts w:ascii="${fontName}" w:hAnsi="${fontName}" w:cs="${fontName}"/>${b}${i}<w:sz w:val="${size}"/><w:szCs w:val="${size}"/>${col}${spc}</w:rPr>`;
+  }
+
+  function r(text, opts = {}) {
+    return `<w:r>${rpr(opts)}<w:t xml:space="preserve">${esc(text)}</w:t></w:r>`;
+  }
+
+  function ppr(opts = {}) {
+    const jc     = opts.align  ? `<w:jc w:val="${opts.align}"/>` : "";
+    const sp     = `<w:spacing w:before="${opts.before ?? 0}" w:after="${opts.after ?? 120}"/>`;
+    const bdr    = opts.border ? `<w:pBdr><w:bottom w:val="single" w:sz="${opts.bdrSz ?? 6}" w:space="1" w:color="${accentHex}"/></w:pBdr>` : "";
+    const num    = opts.bullet ? `<w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>` : "";
+    const ind    = opts.indent ? `<w:ind w:left="${opts.indent}"/>` : "";
+    return `<w:pPr>${num}${sp}${jc}${bdr}${ind}</w:pPr>`;
+  }
+
+  function p(runs, opts = {}) {
+    return `<w:p>${ppr(opts)}${runs}</w:p>`;
+  }
+
+  function sectionHeading(label) {
+    return p(
+      r(label.toUpperCase(), { bold: true, sz: sz + 2, color: accentHex, spacing: 40 }),
+      { before: 200, after: 80, border: true, bdrSz: 4 }
+    );
+  }
+
+  let body = "";
+
+  // Header
+  body += p(r(contact.name || "", { bold: true, sz: szLg, color: accentHex, spacing: 20 }), { align: "center", after: 40 });
+  body += p(r(contact.title || "", { italic: true, sz: sz + 2, color: "595959" }), { align: "center", after: 60 });
+  const contactParts = [contact.location, contact.phone, contact.email].filter(Boolean);
+  body += p(r(contactParts.join("  |  "), { sz: szSm, color: "595959" }), { align: "center", after: 200, border: true, bdrSz: 6 });
+
+  // Sections
+  for (const sec of (sections || [])) {
+    body += sectionHeading(sec.label || "");
+
+    if (sec.type === "text") {
+      body += p(r(sec.content || "", { sz }), { after: 100 });
+
+    } else if (sec.type === "bullets") {
+      for (const item of (sec.items || [])) {
+        body += p(r(item, { sz }), { bullet: true, after: 60 });
+      }
+
+    } else if (sec.type === "jobs") {
+      for (const job of (sec.jobs || [])) {
+        const loc = job.location ? `  •  ${job.location}` : "";
+        body += p(
+          r(job.role || "", { bold: true, sz }) +
+          r(`  —  ${job.company || ""}${loc}`, { sz, color: "444444" }) +
+          `<w:r><w:rPr><w:rFonts w:ascii="${fontName}" w:hAnsi="${fontName}"/><w:sz w:val="${szSm}"/></w:rPr><w:tab/></w:r>` +
+          r(job.period || "", { sz: szSm, color: "595959" }),
+          { before: 120, after: 60 }
+        );
+        for (const bullet of (job.bullets || [])) {
+          body += p(r(bullet, { sz }), { bullet: true, after: 40 });
+        }
+      }
+
+    } else if (sec.type === "education") {
+      for (const deg of (sec.degrees || [])) {
+        body += p(
+          r(deg.degree || "", { bold: true, sz }) +
+          r(`  •  ${deg.school || ""}`, { sz }) +
+          r(`  •  ${deg.location || ""}`, { sz: szSm, color: "595959" }),
+          { before: 80, after: 30 }
+        );
+        body += p(r(deg.period || "", { italic: true, sz: szSm, color: "595959" }), { after: 80 });
+      }
+    }
+  }
+
+  // ── XML files ────────────────────────────────────────────────────────────
+  const doc = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
+  xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <w:body>${body}
+    <w:sectPr>
+      <w:pgSz w:w="12240" w:h="15840"/>
+      <w:pgMar w:top="1080" w:right="1080" w:bottom="1080" w:left="1080"/>
+    </w:sectPr>
+  </w:body>
+</w:document>`;
+
+  const num = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:abstractNum w:abstractNumId="0">
+    <w:multiLevelType w:val="singleLevel"/>
+    <w:lvl w:ilvl="0">
+      <w:start w:val="1"/><w:numFmt w:val="bullet"/>
+      <w:lvlText w:val="&#x2022;"/>
+      <w:lvlJc w:val="left"/>
+      <w:pPr><w:ind w:left="360" w:hanging="360"/></w:pPr>
+      <w:rPr><w:rFonts w:ascii="Symbol" w:hAnsi="Symbol"/><w:sz w:val="${sz}"/></w:rPr>
+    </w:lvl>
+  </w:abstractNum>
+  <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>
+</w:numbering>`;
+
+  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <w:docDefaults>
+    <w:rPrDefault>
+      <w:rPr>
+        <w:rFonts w:ascii="${fontName}" w:hAnsi="${fontName}" w:cs="${fontName}"/>
+        <w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>
+        <w:lang w:val="en-CA"/>
+      </w:rPr>
+    </w:rPrDefault>
+  </w:docDefaults>
+</w:styles>`;
+
+  const settings = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:defaultTabStop w:val="720"/>
+  <w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>
+</w:settings>`;
+
+  const docRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>
+</Relationships>`;
+
+  const pkgRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>`;
+
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml"  ContentType="application/xml"/>
+  <Override PartName="/word/document.xml"   ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml"     ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+  <Override PartName="/word/numbering.xml"  ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
+  <Override PartName="/word/settings.xml"   ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>
+  <Override PartName="/docProps/core.xml"   ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/docProps/app.xml"    ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>`;
+
+  const core = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+  xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <dc:creator>${esc(contact.name)}</dc:creator>
+  <dc:title>${esc(contact.title)}</dc:title>
+</cp:coreProperties>`;
+
+  const app = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">
+  <Application>Microsoft Office Word</Application>
+  <DocSecurity>0</DocSecurity>
+</Properties>`;
+
+  return { doc, num, styles, settings, docRels, pkgRels, contentTypes, core, app };
+}
+
+// ── Pure-JS ZIP (store method, no compression — DOCX doesn't need it) ─────────
+async function zipDocx(xml) {
+  const enc = new TextEncoder();
+  const u32 = (n) => { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, n, true); return b; };
+  const u16 = (n) => { const b = new Uint8Array(2); new DataView(b.buffer).setUint16(0, n, true); return b; };
+
+  function crc32(bytes) {
+    if (!crc32._t) {
+      crc32._t = Array.from({ length: 256 }, (_, i) => {
+        let c = i;
+        for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        return c >>> 0;
+      });
+    }
+    let c = 0xFFFFFFFF;
+    for (const b of bytes) c = (crc32._t[(c ^ b) & 0xFF] ^ (c >>> 8)) >>> 0;
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  const files = [
+    ["[Content_Types].xml",          xml.contentTypes],
+    ["_rels/.rels",                   xml.pkgRels],
+    ["word/document.xml",            xml.doc],
+    ["word/styles.xml",              xml.styles],
+    ["word/numbering.xml",           xml.num],
+    ["word/settings.xml",            xml.settings],
+    ["word/_rels/document.xml.rels", xml.docRels],
+    ["docProps/core.xml",            xml.core],
+    ["docProps/app.xml",             xml.app],
+  ];
+
+  const entries = [];
+  let offset = 0;
+  const parts = [];
+
+  for (const [name, text] of files) {
+    const nameB = enc.encode(name);
+    const data  = enc.encode(text);
+    const crc   = crc32(data);
+    const local = new Uint8Array(30 + nameB.length);
+    const dv    = new DataView(local.buffer);
+    dv.setUint32(0,  0x04034B50, false); // signature
+    dv.setUint16(4,  20, true);          // version needed
+    dv.setUint16(6,  0,  true);          // flags
+    dv.setUint16(8,  0,  true);          // method: store
+    dv.setUint16(10, 0,  true);          // mod time
+    dv.setUint16(12, 0,  true);          // mod date
+    dv.setUint32(14, crc,         true); // CRC
+    dv.setUint32(18, data.length, true); // compressed size
+    dv.setUint32(22, data.length, true); // uncompressed size
+    dv.setUint16(26, nameB.length,true); // filename length
+    dv.setUint16(28, 0, true);           // extra field length
+    local.set(nameB, 30);
+    parts.push(local, data);
+    entries.push({ nameB, crc, size: data.length, offset });
+    offset += local.length + data.length;
+  }
+
+  const centralParts = entries.map(e => {
+    const c = new Uint8Array(46 + e.nameB.length);
+    const dv = new DataView(c.buffer);
+    dv.setUint32(0,  0x02014B50, false);
+    dv.setUint16(4,  20, true);
+    dv.setUint16(6,  20, true);
+    dv.setUint16(8,  0,  true);
+    dv.setUint16(10, 0,  true);
+    dv.setUint16(12, 0,  true);
+    dv.setUint16(14, 0,  true);
+    dv.setUint32(16, e.crc,         true);
+    dv.setUint32(20, e.size,        true);
+    dv.setUint32(24, e.size,        true);
+    dv.setUint16(28, e.nameB.length,true);
+    dv.setUint16(30, 0, true);
+    dv.setUint16(32, 0, true);
+    dv.setUint16(34, 0, true);
+    dv.setUint16(36, 0, true);
+    dv.setUint32(40, 0, true);
+    dv.setUint32(42, e.offset, true);
+    c.set(e.nameB, 46);
+    return c;
   });
 
-  // ── Step 2: Job Description ────────────────────────────────────────────────
-  const [jobDesc, setJobDesc] = useState("");
-  const [jdFocused, setJdFocused] = useState(false);
+  const centralSize   = centralParts.reduce((s, c) => s + c.length, 0);
+  const eocd          = new Uint8Array(22);
+  const eocdDv        = new DataView(eocd.buffer);
+  eocdDv.setUint32(0, 0x06054B50, false);
+  eocdDv.setUint16(4, 0, true);
+  eocdDv.setUint16(6, 0, true);
+  eocdDv.setUint16(8,  entries.length, true);
+  eocdDv.setUint16(10, entries.length, true);
+  eocdDv.setUint32(12, centralSize,    true);
+  eocdDv.setUint32(16, offset,         true);
+  eocdDv.setUint16(20, 0, true);
 
-  const set = useCallback((key) => (val) => setInfo(p => ({ ...p, [key]: val })), []);
+  const all   = [...parts, ...centralParts, eocd];
+  const total = all.reduce((s, p) => s + p.length, 0);
+  const buf   = new Uint8Array(total);
+  let   pos   = 0;
+  for (const p of all) { buf.set(p, pos); pos += p.length; }
+  return buf;
+}
+
+async function downloadDocx(resume, docStyle, filename) {
+  if (!resume?.contact?.name)    throw new Error("Resume is missing contact name.");
+  if (!resume?.sections?.length) throw new Error("Resume has no sections.");
+  const xml  = buildDocx(resume, docStyle);
+  const zip  = await zipDocx(xml);
+  const blob = new Blob([zip], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement("a"), { href: url, download: filename || "Resume.docx" });
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// ── PDF: text-based via browser print (preserves selectable text) ─────────────
+// We inject a dedicated print stylesheet and isolate the preview element.
+// Result: clean text PDF — every word is selectable and copyable.
+function printPdf(previewEl) {
+  if (!previewEl) return;
+  const id  = "__resume_pdf_print__";
+  const cls = "__resume_print_hide__";
+
+  // Hide everything except our preview
+  const siblings = Array.from(document.body.children).filter(el => el !== previewEl);
+  siblings.forEach(el => el.classList.add(cls));
+  previewEl.id = id;
+
+  const style = document.createElement("style");
+  style.id    = "__resume_print_style__";
+  style.textContent = `
+    @media print {
+      body { margin: 0 !important; padding: 0 !important; background: white !important; }
+      .${cls} { display: none !important; }
+      #${id}  { display: block !important; position: static !important;
+                 transform: none !important; box-shadow: none !important;
+                 border-radius: 0 !important; width: 100% !important; }
+    }
+  `;
+  document.head.appendChild(style);
+  window.print();
+
+  setTimeout(() => {
+    siblings.forEach(el => el.classList.remove(cls));
+    previewEl.removeAttribute("id");
+    const s = document.getElementById("__resume_print_style__");
+    if (s) document.head.removeChild(s);
+  }, 1500);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LIVE PREVIEW — fully editable inline
+// ═══════════════════════════════════════════════════════════════════════════════
+function EditableSpan({ value, onChange, style: extraStyle, multiline, bold, italic }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal]         = useState(value);
+  const ref = useRef(null);
+
+  useEffect(() => { setVal(value); }, [value]);
+  useEffect(() => { if (editing && ref.current) ref.current.focus(); }, [editing]);
+
+  const commit = () => { onChange(val); setEditing(false); };
+  const shared = {
+    fontFamily: "inherit", fontSize: "inherit", lineHeight: "inherit",
+    fontWeight: bold ? "bold" : "inherit", fontStyle: italic ? "italic" : "inherit",
+    color: "inherit", border: "2px solid #3B82F6", borderRadius: 3,
+    background: "rgba(59,130,246,0.06)", outline: "none",
+    padding: "0 2px", width: "100%", boxSizing: "border-box", ...extraStyle,
+  };
+
+  if (editing) {
+    return multiline
+      ? <textarea ref={ref} value={val} rows={Math.max(2, val.split("\n").length)}
+          onChange={e => setVal(e.target.value)} onBlur={commit}
+          style={{ ...shared, resize: "vertical", display: "block" }} />
+      : <input ref={ref} value={val} type="text"
+          onChange={e => setVal(e.target.value)}
+          onBlur={commit} onKeyDown={e => e.key === "Enter" && commit()}
+          style={shared} />;
+  }
+  return (
+    <span onClick={() => setEditing(true)} title="Click to edit"
+      style={{ cursor: "text", borderBottom: "1.5px dashed transparent",
+        transition: "border-color 0.12s", ...extraStyle,
+        fontWeight: bold ? "bold" : undefined, fontStyle: italic ? "italic" : undefined }}
+      onMouseEnter={e => { e.currentTarget.style.borderBottomColor = "#3B82F680"; }}
+      onMouseLeave={e => { e.currentTarget.style.borderBottomColor = "transparent"; }}>
+      {val || <span style={{ color: "#aaa" }}>Click to edit</span>}
+    </span>
+  );
+}
+
+const LivePreview = React.forwardRef(function LivePreview(
+  { resume, docStyle, onEdit }, ref
+) {
+  const accentColor = ACCENTS.find(a => a.id === docStyle.accent)?.hex || "#1F3864";
+  const fs          = docStyle.fontSize || 11;
+  const fontFamily  = `${docStyle.font || "Calibri"}, "Times New Roman", serif`;
+
+  if (!resume?.contact || !resume?.sections) {
+    return (
+      <div ref={ref} style={{ background: "white", padding: "40mm 20mm",
+        width: "210mm", minHeight: "297mm", boxSizing: "border-box",
+        display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <p style={{ color: "#aaa", fontFamily, fontSize: 14, textAlign: "center" }}>
+          Your generated resume will appear here
+        </p>
+      </div>
+    );
+  }
+
+  const { contact, sections } = resume;
+
+  const SectionHead = ({ label }) => (
+    <div style={{ marginTop: 14, marginBottom: 5,
+      borderBottom: `1.5px solid ${accentColor}`, paddingBottom: 2 }}>
+      <span style={{ fontFamily, fontSize: `${fs + 0.5}pt`, fontWeight: "bold",
+        color: accentColor, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+        {label}
+      </span>
+    </div>
+  );
+
+  return (
+    <div ref={ref} style={{ background: "white", padding: "20mm 18mm",
+      width: "210mm", minHeight: "297mm", boxSizing: "border-box",
+      fontFamily, fontSize: `${fs}pt`, lineHeight: 1.45, color: "#1A1A1A" }}>
+
+      {/* Header */}
+      <div style={{ textAlign: "center", marginBottom: 12 }}>
+        <div style={{ fontSize: `${fs + 6}pt`, fontWeight: "bold", color: accentColor,
+          letterSpacing: "0.03em", marginBottom: 3 }}>
+          <EditableSpan value={contact.name || ""} onChange={v => onEdit("contact", "name", v)}
+            bold style={{ color: accentColor }} />
+        </div>
+        <div style={{ fontSize: `${fs + 1}pt`, fontStyle: "italic", color: "#595959", marginBottom: 5 }}>
+          <EditableSpan value={contact.title || ""} onChange={v => onEdit("contact", "title", v)}
+            italic style={{ color: "#595959" }} />
+        </div>
+        <div style={{ fontSize: `${fs - 1}pt`, color: "#595959",
+          borderBottom: `1.5px solid ${accentColor}`, paddingBottom: 6 }}>
+          <EditableSpan value={contact.location || ""} onChange={v => onEdit("contact", "location", v)} />
+          {(contact.phone || contact.email) && " · "}
+          <EditableSpan value={contact.phone || ""} onChange={v => onEdit("contact", "phone", v)} />
+          {contact.phone && contact.email && " · "}
+          <EditableSpan value={contact.email || ""} onChange={v => onEdit("contact", "email", v)} />
+        </div>
+      </div>
+
+      {/* Sections */}
+      {sections.map((sec, si) => (
+        <div key={sec.id || si}>
+          <SectionHead label={sec.label} />
+
+          {sec.type === "text" && (
+            <p style={{ fontFamily, fontSize: `${fs}pt`, lineHeight: 1.45,
+              color: "#2C2C2C", margin: "3px 0 8px" }}>
+              <EditableSpan value={sec.content || ""}
+                onChange={v => onEdit("section-text", si, v)} multiline />
+            </p>
+          )}
+
+          {sec.type === "bullets" && (
+            <ul style={{ margin: "3px 0 6px", paddingLeft: 18 }}>
+              {(sec.items || []).map((item, ii) => (
+                <li key={ii} style={{ fontFamily, fontSize: `${fs}pt`,
+                  lineHeight: 1.45, marginBottom: 2, color: "#2C2C2C" }}>
+                  <EditableSpan value={item} onChange={v => onEdit("bullet", si, ii, v)} />
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {sec.type === "jobs" && (sec.jobs || []).map((job, ji) => (
+            <div key={ji} style={{ marginBottom: 9 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <div style={{ fontFamily, fontSize: `${fs}pt` }}>
+                  <strong>
+                    <EditableSpan value={job.role || ""} onChange={v => onEdit("job-role", si, ji, v)} bold />
+                  </strong>
+                  <span style={{ color: "#595959", marginLeft: 6 }}>
+                    <EditableSpan value={job.company || ""} onChange={v => onEdit("job-company", si, ji, v)} />
+                    {job.location && <span style={{ color: "#999" }}> · <EditableSpan value={job.location || ""} onChange={v => onEdit("job-location", si, ji, v)} /></span>}
+                  </span>
+                </div>
+                <span style={{ fontFamily, fontSize: `${fs - 1}pt`, color: "#595959", whiteSpace: "nowrap", marginLeft: 8 }}>
+                  <EditableSpan value={job.period || ""} onChange={v => onEdit("job-period", si, ji, v)} />
+                </span>
+              </div>
+              <ul style={{ margin: "2px 0 2px", paddingLeft: 18 }}>
+                {(job.bullets || []).map((b, bi) => (
+                  <li key={bi} style={{ fontFamily, fontSize: `${fs}pt`,
+                    lineHeight: 1.45, marginBottom: 2, color: "#2C2C2C" }}>
+                    <EditableSpan value={b} onChange={v => onEdit("job-bullet", si, ji, bi, v)} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+
+          {sec.type === "education" && (sec.degrees || []).map((deg, di) => (
+            <div key={di} style={{ marginBottom: 6 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <div style={{ fontFamily, fontSize: `${fs}pt` }}>
+                  <strong><EditableSpan value={deg.degree || ""} onChange={v => onEdit("deg-degree", si, di, v)} bold /></strong>
+                  <span style={{ color: "#595959" }}>
+                    {" · "}<EditableSpan value={deg.school || ""} onChange={v => onEdit("deg-school", si, di, v)} />
+                    {" · "}<EditableSpan value={deg.location || ""} onChange={v => onEdit("deg-location", si, di, v)} />
+                  </span>
+                </div>
+                <span style={{ fontFamily, fontSize: `${fs - 1}pt`, color: "#595959",
+                  fontStyle: "italic", whiteSpace: "nowrap", marginLeft: 8 }}>
+                  <EditableSpan value={deg.period || ""} onChange={v => onEdit("deg-period", si, di, v)} />
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RESUME STATE REDUCER
+// ═══════════════════════════════════════════════════════════════════════════════
+function resumeReducer(state, action) {
+  const clone = () => JSON.parse(JSON.stringify(state));
+  switch (action.type) {
+    case "SET":    return action.resume;
+    case "CONTACT": { const s = clone(); s.contact[action.key] = action.val; return s; }
+    case "SEC_TEXT": { const s = clone(); s.sections[action.si].content = action.val; return s; }
+    case "BULLET":   { const s = clone(); s.sections[action.si].items[action.ii] = action.val; return s; }
+    case "JOB_ROLE":     { const s = clone(); s.sections[action.si].jobs[action.ji].role     = action.val; return s; }
+    case "JOB_COMPANY":  { const s = clone(); s.sections[action.si].jobs[action.ji].company  = action.val; return s; }
+    case "JOB_LOCATION": { const s = clone(); s.sections[action.si].jobs[action.ji].location = action.val; return s; }
+    case "JOB_PERIOD":   { const s = clone(); s.sections[action.si].jobs[action.ji].period   = action.val; return s; }
+    case "JOB_BULLET":   { const s = clone(); s.sections[action.si].jobs[action.ji].bullets[action.bi] = action.val; return s; }
+    case "DEG_DEGREE":   { const s = clone(); s.sections[action.si].degrees[action.di].degree   = action.val; return s; }
+    case "DEG_SCHOOL":   { const s = clone(); s.sections[action.si].degrees[action.di].school   = action.val; return s; }
+    case "DEG_LOCATION": { const s = clone(); s.sections[action.si].degrees[action.di].location = action.val; return s; }
+    case "DEG_PERIOD":   { const s = clone(); s.sections[action.si].degrees[action.di].period   = action.val; return s; }
+    default: return state;
+  }
+}
+
+function onEditHandler(dispatch) {
+  return (type, ...args) => {
+    const map = {
+      "contact":      (key, val)            => ({ type: "CONTACT",      key, val }),
+      "section-text": (si, val)             => ({ type: "SEC_TEXT",     si, val }),
+      "bullet":       (si, ii, val)         => ({ type: "BULLET",       si, ii, val }),
+      "job-role":     (si, ji, val)         => ({ type: "JOB_ROLE",     si, ji, val }),
+      "job-company":  (si, ji, val)         => ({ type: "JOB_COMPANY",  si, ji, val }),
+      "job-location": (si, ji, val)         => ({ type: "JOB_LOCATION", si, ji, val }),
+      "job-period":   (si, ji, val)         => ({ type: "JOB_PERIOD",   si, ji, val }),
+      "job-bullet":   (si, ji, bi, val)     => ({ type: "JOB_BULLET",   si, ji, bi, val }),
+      "deg-degree":   (si, di, val)         => ({ type: "DEG_DEGREE",   si, di, val }),
+      "deg-school":   (si, di, val)         => ({ type: "DEG_SCHOOL",   si, di, val }),
+      "deg-location": (si, di, val)         => ({ type: "DEG_LOCATION", si, di, val }),
+      "deg-period":   (si, di, val)         => ({ type: "DEG_PERIOD",   si, di, val }),
+    };
+    const action = map[type]?.(...args);
+    if (action) dispatch(action);
+  };
+}
+
+// ── API helpers ────────────────────────────────────────────────────────────────
+async function apiGenerate(userInfo, jobDesc) {
+  const res  = await fetch(`${BASE}/api/v1/resume/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_info: userInfo, job_description: jobDesc }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.message || `Error ${res.status}`);
+  return json.data ?? json;
+}
+
+async function apiListSaved() {
+  const res  = await fetch(`${BASE}/api/v1/resume/saved`);
+  const json = await res.json();
+  if (!res.ok) return [];
+  return json.data ?? json ?? [];
+}
+
+async function apiGetSaved(id) {
+  const res  = await fetch(`${BASE}/api/v1/resume/${id}`);
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.message || "Not found");
+  return json.data ?? json;
+}
+
+async function apiDelete(id) {
+  await fetch(`${BASE}/api/v1/resume/${id}`, { method: "DELETE" });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════════
+const EMPTY_INFO = {
+  name: "", title: "", location: "", email: "", phone: "",
+  background: "", experience: "", education: "", skills: "",
+};
+
+export default function ResumeGuestMode({ onClose }) {
+  // Tab: "new" | "templates"
+  const [tab,       setTab]       = useState("new");
+  // Wizard step: 1 | 2
+  const [step,      setStep]      = useState(1);
+  // Form
+  const [info,      setInfo]      = useState(EMPTY_INFO);
+  const [jobDesc,   setJobDesc]   = useState("");
+  // Generation
+  const [generating, setGenerating] = useState(false);
+  const [error,     setError]     = useState("");
+  const [genResult, setGenResult] = useState(null); // { keywords, saved_id, job_location }
+  // Resume state
+  const [resume,    dispatch]     = useReducer(resumeReducer, null);
+  const onEdit = useCallback(onEditHandler(dispatch), [dispatch]);
+  // Style
+  const [docStyle,  setDocStyle]  = useState(DEFAULT_STYLE);
+  // Saved resumes list
+  const [saved,     setSaved]     = useState([]);
+  const [loadingSaved, setLoadingSaved] = useState(false);
+  // Download state
+  const [downloading, setDownloading] = useState(null); // "docx" | "pdf" | null
+  // Scale for preview
+  const [scale,     setScale]     = useState(1);
+  const canvasRef  = useRef(null);
+  const previewRef = useRef(null);
+
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 700;
+
+  // Compute preview scale
+  useEffect(() => {
+    const compute = () => {
+      if (!canvasRef.current) return;
+      const available = canvasRef.current.clientWidth - 40;
+      setScale(Math.min(1, Math.max(0.3, available / 794))); // 210mm at 96dpi ≈ 794px
+    };
+    compute();
+    const ro = window.ResizeObserver ? new ResizeObserver(compute) : null;
+    if (ro && canvasRef.current) ro.observe(canvasRef.current);
+    window.addEventListener("resize", compute);
+    return () => { ro?.disconnect(); window.removeEventListener("resize", compute); };
+  }, []);
+
+  // Load saved when tab switches
+  useEffect(() => {
+    if (tab !== "templates") return;
+    setLoadingSaved(true);
+    apiListSaved().then(setSaved).finally(() => setLoadingSaved(false));
+  }, [tab]);
+
+  const set = (k) => (v) => setInfo(p => ({ ...p, [k]: v }));
 
   const ready1 = info.name.trim() && info.title.trim() && info.location.trim();
   const ready2 = jobDesc.trim().length >= 80;
 
   // ── Generate ───────────────────────────────────────────────────────────────
   const generate = async () => {
-    setLoading(true);
+    setGenerating(true);
     setError("");
     try {
-      const res = await fetch(`${BASE}/api/v1/resume/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_info: info, job_description: jobDesc }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || `Error ${res.status}`);
-
-      const resume = data.data ?? data;
-
-      // Build the resume object Resume.js preview expects
+      const data = await apiGenerate(info, jobDesc);
       const resumeObj = {
-        label:    "AI Generated",
-        title:    resume.contact?.title || info.title,
-        contact:  resume.contact || { name: info.name, title: info.title, email: info.email, phone: info.phone, location: info.location },
-        sections: resume.sections || [],
-        keywords: resume.keywords || [],
-        saved_id: resume.saved_id || null,
+        contact:  data.contact  || {},
+        sections: data.sections || [],
+        keywords: data.keywords || [],
+        saved_id: data.saved_id || null,
       };
-
-      setResult({ keywords: resume.keywords || [], saved_id: resume.saved_id, location: resume.job_location });
-      onResume(resumeObj);
+      dispatch({ type: "SET", resume: resumeObj });
+      setGenResult({ keywords: data.keywords || [], saved_id: data.saved_id, job_location: data.job_location });
+      setStep(3);
     } catch (e) {
       setError(e.message || "Generation failed. Try again.");
     } finally {
-      setLoading(false);
+      setGenerating(false);
     }
   };
 
-  const reset = () => {
-    setStep(1); setResult(null); setError("");
-    setInfo({ name:"", title:"", location:"", email:"", phone:"", background:"", experience:"", education:"", skills:"" });
-    setJobDesc("");
+  // ── Load saved resume ──────────────────────────────────────────────────────
+  const loadSaved = async (id) => {
+    try {
+      const data = await apiGetSaved(id);
+      const resumeObj = { contact: data.contact || {}, sections: data.sections || [], keywords: data.keywords || [], saved_id: id };
+      dispatch({ type: "SET", resume: resumeObj });
+      setTab("new");
+      setStep(3);
+    } catch (e) {
+      setError("Could not load: " + e.message);
+    }
   };
 
-  // ── Shared button ──────────────────────────────────────────────────────────
-  const Btn = ({ children, onClick, disabled, variant = "primary", small }) => {
-    const styles = {
-      primary:   { background: T.blue, color: "#fff",  border: `1px solid ${T.blueBr}` },
-      gold:      { background: T.goldBg, color: T.gold, border: `1px solid ${T.goldBr}` },
-      ghost:     { background: "transparent", color: T.sub, border: `1px solid ${T.border}` },
-      danger:    { background: T.redBg, color: T.red, border: `1px solid ${T.redBr}` },
-    };
-    return (
-      <motion.button whileTap={{ scale: 0.96 }} onClick={onClick} disabled={disabled}
-        style={{ ...styles[variant], display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
-          padding: small ? "7px 14px" : "11px 16px", borderRadius: 11, cursor: disabled ? "not-allowed" : "pointer",
-          fontSize: 13, fontWeight: 600, fontFamily: T.sans, opacity: disabled ? 0.45 : 1,
-          width: small ? "auto" : "100%", transition: "opacity 0.15s" }}>
-        {children}
-      </motion.button>
-    );
+  // ── Downloads ──────────────────────────────────────────────────────────────
+  const handleDocx = async () => {
+    if (!resume) return;
+    setDownloading("docx");
+    try {
+      const name = resume.contact?.name?.replace(/\s+/g, "_") || "Resume";
+      await downloadDocx(resume, docStyle, `${name}_Resume.docx`);
+    } catch (e) {
+      setError("Download failed: " + e.message);
+    } finally {
+      setDownloading(null);
+    }
   };
 
-  // ── RESULT VIEW ────────────────────────────────────────────────────────────
-  if (result) return (
-    <div style={{ padding: "24px 18px" }}>
-      <div style={{ width: 44, height: 44, borderRadius: "50%", background: T.greenBg, border: `1px solid ${T.greenBr}`,
-        display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
-        <Icon d={I.check} size={20} color={T.green} sw={2.5} />
-      </div>
+  const handlePdf = () => {
+    if (!previewRef.current) return;
+    setDownloading("pdf");
+    printPdf(previewRef.current);
+    setTimeout(() => setDownloading(null), 1500);
+  };
 
-      <p style={{ color: T.text, fontSize: 15, fontWeight: 700, margin: "0 0 4px" }}>Resume ready</p>
-      <p style={{ color: T.sub, fontSize: 12, margin: "0 0 20px", lineHeight: 1.6 }}>
-        {isMobile ? "Scroll down to preview." : "Preview updated on the right."} Click any text to edit before downloading.
-      </p>
+  const resetWizard = () => {
+    setStep(1); setInfo(EMPTY_INFO); setJobDesc("");
+    setError(""); setGenResult(null);
+  };
 
-      {result.location && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px",
-          background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, marginBottom: 14 }}>
-          <Icon d={I.pin} size={13} color={T.sub} />
-          <span style={{ fontSize: 12, color: T.sub }}>Location matched to job posting: <strong style={{ color: T.text }}>{result.location}</strong></span>
+  // ── Layout ─────────────────────────────────────────────────────────────────
+  const SZ = { sidebar: 320, A4w: 794, A4h: 1123 };
+  const scaledW = Math.round(SZ.A4w * scale);
+  const scaledH = Math.round(SZ.A4h * scale);
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      style={{ position: "fixed", inset: 0, bottom: "var(--taskbar-height,52px)",
+        zIndex: 50, background: C.bg, display: "flex", flexDirection: "column",
+        fontFamily: C.sans, overflow: "hidden" }}>
+
+      {/* Print styles injected globally */}
+      <style>{`@media print{body *{visibility:hidden!important}#__resume_pdf_print__,#__resume_pdf_print__ *{visibility:visible!important}#__resume_pdf_print__{position:fixed!important;left:0!important;top:0!important;width:100%!important;transform:none!important;box-shadow:none!important}}`}</style>
+
+      {/* ── Top bar ─────────────────────────────────────────────────────────── */}
+      <div style={{ flexShrink: 0, height: 52, display: "flex", alignItems: "center",
+        justifyContent: "space-between", padding: "0 14px",
+        background: C.panel, borderBottom: `1px solid ${C.border}`, gap: 10 }}>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Icon name="FileText" size={18} color={C.gold} />
+          <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>Resume Builder</span>
+          <span style={{ fontSize: 11, fontFamily: C.mono, color: C.muted,
+            background: C.raised, border: `1px solid ${C.border}`,
+            padding: "2px 8px", borderRadius: 6 }}>Guest Mode</span>
         </div>
-      )}
 
-      {result.saved_id && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px",
-          background: T.greenBg, border: `1px solid ${T.greenBr}`, borderRadius: 10, marginBottom: 14 }}>
-          <Icon d={I.doc} size={13} color={T.green} />
-          <span style={{ fontSize: 12, color: T.green }}>Saved to your portfolio database</span>
-        </div>
-      )}
-
-      {result.keywords.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          <p style={{ fontFamily: T.mono, fontSize: 9, color: T.faint, letterSpacing: "0.1em", margin: "0 0 9px" }}>
-            ATS KEYWORDS EMBEDDED
-          </p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-            {result.keywords.map(k => <Kw key={k} word={k} />)}
+        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          {/* Style: accent color */}
+          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+            {ACCENTS.map(a => (
+              <button key={a.id} title={a.label} onClick={() => setDocStyle(s => ({ ...s, accent: a.id }))}
+                style={{ width: 16, height: 16, borderRadius: "50%", background: a.hex, cursor: "pointer",
+                  border: docStyle.accent === a.id ? "2.5px solid #fff" : "2px solid rgba(255,255,255,0.2)",
+                  transition: "border 0.15s" }} />
+            ))}
           </div>
-        </div>
-      )}
 
-      <Btn onClick={reset} variant="ghost">
-        <Icon d={I.refresh} size={14} color={T.sub} /> Generate another
-      </Btn>
-    </div>
+          {/* Download — only enabled when resume exists */}
+          <Btn small icon={downloading === "docx" ? undefined : "FileDown"}
+            loading={downloading === "docx"}
+            onClick={handleDocx} disabled={!resume || !!downloading} variant="gold">
+            Word
+          </Btn>
+          <Btn small icon={downloading === "pdf" ? undefined : "FileDown"}
+            loading={downloading === "pdf"}
+            onClick={handlePdf} disabled={!resume || !!downloading}
+            variant="ghost">
+            PDF
+          </Btn>
+
+          <button onClick={onClose}
+            style={{ width: 32, height: 32, borderRadius: "50%",
+              background: C.raised, border: `1px solid ${C.border}`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer", color: C.muted, flexShrink: 0 }}>
+            <Icon name="X" size={14} color={C.muted} />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Body ────────────────────────────────────────────────────────────── */}
+      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+
+        {/* ── LEFT SIDEBAR ──────────────────────────────────────────────────── */}
+        <div style={{ width: SZ.sidebar, flexShrink: 0, display: "flex",
+          flexDirection: "column", background: C.panel,
+          borderRight: `1px solid ${C.border}` }}>
+
+          {/* Tab bar */}
+          <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+            {[
+              { id: "new",       icon: "Sparkles", label: "Build" },
+              { id: "templates", icon: "Layout",   label: "Guest Templates" },
+            ].map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                style={{ flex: 1, padding: "12px 8px", display: "flex", alignItems: "center",
+                  justifyContent: "center", gap: 6, background: "none", border: "none",
+                  cursor: "pointer", borderBottom: tab === t.id ? `2px solid ${C.blue}` : "2px solid transparent",
+                  color: tab === t.id ? C.text : C.muted, fontSize: 12, fontWeight: 700,
+                  fontFamily: C.mono, letterSpacing: "0.04em", transition: "color 0.15s" }}>
+                <Icon name={t.icon} size={13} color={tab === t.id ? C.blue : C.muted} />
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* ── BUILD TAB ───────────────────────────────────────────────────── */}
+          {tab === "new" && (
+            <div style={{ flex: 1, overflowY: "auto", scrollbarWidth: "none" }}>
+
+              {/* Step 3 (done) view */}
+              {step === 3 && genResult && (
+                <div style={{ padding: "20px 18px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: "50%",
+                      background: C.greenBg, border: `1px solid ${C.greenBr}`,
+                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <Icon name="Check" size={16} color={C.green} />
+                    </div>
+                    <div>
+                      <p style={{ color: C.text, fontSize: 14, fontWeight: 700, margin: "0 0 2px" }}>Resume ready</p>
+                      <p style={{ color: C.muted, fontSize: 11, margin: 0 }}>Click any text in the preview to edit</p>
+                    </div>
+                  </div>
+
+                  {genResult.job_location && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 11px",
+                      background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, marginBottom: 10 }}>
+                      <Icon name="MapPin" size={13} color={C.muted} />
+                      <p style={{ color: C.muted, fontSize: 12, margin: 0 }}>
+                        Location matched to posting: <strong style={{ color: C.text }}>{genResult.job_location}</strong>
+                      </p>
+                    </div>
+                  )}
+
+                  {genResult.saved_id && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 11px",
+                      background: C.greenBg, border: `1px solid ${C.greenBr}`, borderRadius: 9, marginBottom: 10 }}>
+                      <Icon name="Check" size={13} color={C.green} />
+                      <p style={{ color: C.green, fontSize: 12, margin: 0 }}>Saved → visible in Guest Templates tab</p>
+                    </div>
+                  )}
+
+                  {genResult.keywords?.length > 0 && (
+                    <div style={{ marginBottom: 16 }}>
+                      <p style={{ fontFamily: C.mono, fontSize: 9, color: C.faint,
+                        letterSpacing: "0.1em", margin: "0 0 8px" }}>ATS KEYWORDS EMBEDDED</p>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                        {genResult.keywords.map(k => <KwPill key={k} word={k} />)}
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ padding: "12px 13px", background: C.surface,
+                    border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 14 }}>
+                    <p style={{ fontFamily: C.mono, fontSize: 9, color: C.faint,
+                      letterSpacing: "0.08em", margin: "0 0 4px" }}>DOWNLOADS</p>
+                    <p style={{ color: C.muted, fontSize: 12, margin: 0, lineHeight: 1.6 }}>
+                      <strong style={{ color: C.text }}>Word (.docx)</strong> — fully editable in Word, Google Docs, LibreOffice<br />
+                      <strong style={{ color: C.text }}>PDF</strong> — text-based via print dialog; text is selectable & copyable
+                    </p>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <Btn variant="gold" icon="FileDown" onClick={handleDocx} disabled={!!downloading}
+                      loading={downloading === "docx"}>
+                      Download Word (.docx)
+                    </Btn>
+                    <Btn variant="ghost" icon="FileDown" onClick={handlePdf} disabled={!!downloading}
+                      loading={downloading === "pdf"}>
+                      Download PDF (Print)
+                    </Btn>
+                    <Btn variant="ghost" icon="RefreshCw" onClick={resetWizard}>
+                      Build another resume
+                    </Btn>
+                  </div>
+                </div>
+              )}
+
+              {/* Wizard steps 1 & 2 */}
+              {step < 3 && (
+                <div style={{ padding: "20px 18px" }}>
+                  <Steps current={step} />
+
+                  {error && (
+                    <div style={{ display: "flex", gap: 8, padding: "10px 12px", borderRadius: 9,
+                      background: C.redBg, border: `1px solid ${C.redBr}`,
+                      color: C.red, fontSize: 12, marginBottom: 16, lineHeight: 1.5 }}>
+                      <Icon name="AlertCircle" size={14} color={C.red} />
+                      {error}
+                    </div>
+                  )}
+
+                  {/* Step 1: Info */}
+                  {step === 1 && (
+                    <>
+                      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 16 }}>
+                        <Icon name="User" size={15} color={C.blue} />
+                        <span style={{ color: C.muted, fontSize: 12 }}>Fill what you know — AI fills the rest</span>
+                      </div>
+
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
+                        <div style={{ gridColumn: "1/-1" }}>
+                          <Field label="FULL NAME" required value={info.name} onChange={set("name")} placeholder="Jane Smith" />
+                        </div>
+                        <Field label="TARGET JOB TITLE" required value={info.title} onChange={set("title")} placeholder="Sales Associate" />
+                        <Field label="LOCATION" required hint="City, Province" value={info.location} onChange={set("location")} placeholder="Toronto, ON" />
+                        <Field label="EMAIL" value={info.email} onChange={set("email")} placeholder="jane@email.com" />
+                        <Field label="PHONE" value={info.phone} onChange={set("phone")} placeholder="(416) 555-0100" />
+                      </div>
+
+                      <Field label="YOUR BACKGROUND" hint="your own words"
+                        value={info.background} onChange={set("background")} multiline rows={4}
+                        placeholder="e.g. I worked at Farm Boy for 4 years stocking shelves, helping customers, and training new staff. Bilingual EN/FR." />
+
+                      <Field label="PAST JOBS" hint="Role | Company | Years — one per line"
+                        value={info.experience} onChange={set("experience")} multiline rows={3}
+                        placeholder={"Grocery Clerk | Farm Boy | 2021–2025\nCashier | Loblaws | 2019–2021"} />
+
+                      <Field label="EDUCATION" hint="Degree | School | Year"
+                        value={info.education} onChange={set("education")} multiline rows={2}
+                        placeholder="Business Admin | Algonquin College | 2023" />
+
+                      <Field label="KEY SKILLS" hint="comma separated"
+                        value={info.skills} onChange={set("skills")} multiline rows={2}
+                        placeholder="Customer service, bilingual EN/FR, inventory, MS Office" />
+
+                      <Btn icon="ChevronRight" onClick={() => { setError(""); setStep(2); }} disabled={!ready1}>
+                        Next — Paste Job Posting
+                      </Btn>
+                    </>
+                  )}
+
+                  {/* Step 2: Job description */}
+                  {step === 2 && (
+                    <>
+                      <button onClick={() => setStep(1)}
+                        style={{ display: "flex", alignItems: "center", gap: 5, background: "none",
+                          border: "none", cursor: "pointer", color: C.muted, fontSize: 12,
+                          padding: "0 0 14px", fontFamily: C.sans }}>
+                        <Icon name="ChevronLeft" size={14} color={C.muted} /> Back
+                      </button>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 14 }}>
+                        <Icon name="Clipboard" size={15} color={C.blue} />
+                        <span style={{ color: C.muted, fontSize: 12 }}>Paste the full posting from LinkedIn, Indeed, anywhere</span>
+                      </div>
+
+                      <Field
+                        label="JOB DESCRIPTION" required
+                        hint={`${jobDesc.length} chars${jobDesc.length >= 80 ? " ✓" : " — need more"}`}
+                        value={jobDesc} onChange={setJobDesc} multiline rows={18} mono
+                        placeholder={"Paste the full job posting here.\n\nMore text = better ATS keyword matching.\n\nInclude: job title, requirements, responsibilities, company description."} />
+
+                      <Btn icon="Sparkles" onClick={generate} disabled={!ready2 || generating} loading={generating}>
+                        {generating ? "Generating…" : "Generate Tailored Resume"}
+                      </Btn>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── GUEST TEMPLATES TAB ─────────────────────────────────────────── */}
+          {tab === "templates" && (
+            <div style={{ flex: 1, overflowY: "auto", padding: "14px", scrollbarWidth: "none" }}>
+              {loadingSaved ? (
+                <div style={{ display: "flex", justifyContent: "center", padding: "40px 0" }}>
+                  <Spinner size={28} />
+                </div>
+              ) : saved.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "40px 16px" }}>
+                  <Icon name="FileText" size={32} color={C.border} />
+                  <p style={{ color: C.muted, fontSize: 13, margin: "12px 0 4px" }}>No saved resumes yet</p>
+                  <p style={{ color: C.faint, fontSize: 11, margin: "0 0 16px" }}>Generate one — it saves automatically</p>
+                  <Btn small variant="ghost" icon="Plus" onClick={() => setTab("new")}>Build one now</Btn>
+                </div>
+              ) : (
+                <>
+                  <p style={{ fontFamily: C.mono, fontSize: 9, color: C.faint,
+                    letterSpacing: "0.1em", margin: "0 0 12px" }}>
+                    {saved.length} SAVED RESUME{saved.length !== 1 ? "S" : ""}
+                  </p>
+                  {saved.map(r => (
+                    <motion.div key={r.id} layout
+                      style={{ background: C.surface, border: `1px solid ${C.border}`,
+                        borderRadius: 12, padding: "12px 13px", marginBottom: 8 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between",
+                        alignItems: "flex-start", gap: 8 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <p style={{ color: C.text, fontSize: 13, fontWeight: 600,
+                            margin: "0 0 2px", overflow: "hidden",
+                            textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {r.name || "Unnamed"}
+                          </p>
+                          <p style={{ color: C.muted, fontSize: 11, margin: "0 0 8px",
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {r.role || ""}
+                          </p>
+                          {r.keywords?.length > 0 && (
+                            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
+                              {r.keywords.slice(0, 4).map(k => (
+                                <span key={k} style={{ fontSize: 10, padding: "2px 7px",
+                                  borderRadius: 20, background: C.blueBg,
+                                  border: `1px solid ${C.blueBr}`, color: C.blue,
+                                  fontFamily: C.mono }}>{k}</span>
+                              ))}
+                              {r.keywords.length > 4 && (
+                                <span style={{ fontSize: 10, color: C.faint,
+                                  fontFamily: C.mono, alignSelf: "center" }}>
+                                  +{r.keywords.length - 4}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          <p style={{ fontFamily: C.mono, fontSize: 9, color: C.faint, margin: 0 }}>
+                            {r.generated_at
+                              ? new Date(r.generated_at).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })
+                              : ""}
+                          </p>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 5, flexShrink: 0 }}>
+                          <Btn small icon="Eye" onClick={() => loadSaved(r.id)}>Load</Btn>
+                          <Btn small variant="danger" icon="Trash2"
+                            onClick={async () => { await apiDelete(r.id); setSaved(s => s.filter(x => x.id !== r.id)); }}>
+                          </Btn>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                  <div style={{ paddingTop: 4 }}>
+                    <Btn variant="ghost" icon="Plus" onClick={() => setTab("new")}>New resume</Btn>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── RIGHT: LIVE PREVIEW ─────────────────────────────────────────────── */}
+        {!isMobile && (
+          <div ref={canvasRef} style={{ flex: 1, overflowY: "auto", background: "#C8C8C8",
+            display: "flex", flexDirection: "column", alignItems: "center",
+            padding: "24px 0 48px", scrollbarWidth: "thin" }}>
+
+            <div style={{ fontFamily: C.mono, fontSize: 9, color: "#666", marginBottom: 12,
+              letterSpacing: "0.08em", userSelect: "none" }}>
+              {Math.round(scale * 100)}% · Click any text to edit · {resume ? "Resume loaded" : "Generate to see preview"}
+            </div>
+
+            {/* A4 canvas */}
+            <div style={{ width: scaledW, height: scaledH, flexShrink: 0, position: "relative" }}>
+              <div style={{ width: SZ.A4w, height: SZ.A4h, position: "absolute", top: 0, left: 0,
+                transform: `scale(${scale})`, transformOrigin: "top left",
+                boxShadow: "0 6px 40px rgba(0,0,0,0.35)" }}>
+                <LivePreview
+                  ref={previewRef}
+                  resume={resume}
+                  docStyle={docStyle}
+                  onEdit={onEdit}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Mobile: preview below wizard */}
+        {isMobile && resume && (
+          <div style={{ position: "fixed", bottom: "var(--taskbar-height,52px)", left: 0, right: 0,
+            background: C.panel, borderTop: `1px solid ${C.border}`, padding: "10px 14px",
+            display: "flex", gap: 8 }}>
+            <Btn small icon="FileDown" onClick={handleDocx} disabled={!!downloading}
+              loading={downloading === "docx"} variant="gold">Word</Btn>
+            <Btn small icon="FileDown" onClick={handlePdf} disabled={!!downloading}
+              loading={downloading === "pdf"} variant="ghost">PDF</Btn>
+          </div>
+        )}
+      </div>
+    </motion.div>
   );
-
-  // ── LOADING ────────────────────────────────────────────────────────────────
-  if (loading) return (
-    <div style={{ padding: "60px 18px", textAlign: "center" }}>
-      <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
-        <Spinner size={36} color={T.blue} />
-      </div>
-      <p style={{ color: T.text, fontSize: 14, fontWeight: 600, margin: "0 0 6px" }}>Tailoring your resume…</p>
-      <p style={{ color: T.sub, fontSize: 12, margin: 0 }}>Groq is matching your background to the job description</p>
-    </div>
-  );
-
-  // ── STEP 1: Info ───────────────────────────────────────────────────────────
-  if (step === 1) return (
-    <div style={{ padding: "20px 18px" }}>
-      <Progress step={1} />
-
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
-        <Icon d={I.user} size={15} color={T.blue} />
-        <div>
-          <p style={{ color: T.text, fontSize: 14, fontWeight: 700, margin: 0 }}>Your Information</p>
-          <p style={{ color: T.sub, fontSize: 11, margin: 0 }}>Fill in what you know — AI fills the gaps</p>
-        </div>
-      </div>
-
-      {/* Row: Name + Target Title */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 12px" }}>
-        <Field label="FULL NAME" value={info.name} onChange={set("name")} placeholder="Jane Smith" required />
-        <Field label="TARGET JOB TITLE" value={info.title} onChange={set("title")} placeholder="Sales Associate" required />
-      </div>
-
-      {/* Location */}
-      <Field label="YOUR LOCATION" hint="City, Province/State" value={info.location} onChange={set("location")} placeholder="Toronto, ON" required />
-
-      {/* Row: Email + Phone */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 12px" }}>
-        <Field label="EMAIL" value={info.email} onChange={set("email")} placeholder="jane@email.com" />
-        <Field label="PHONE" value={info.phone} onChange={set("phone")} placeholder="(416) 555-0100" />
-      </div>
-
-      {/* Background */}
-      <Field
-        label="YOUR BACKGROUND"
-        hint="in your own words"
-        value={info.background}
-        onChange={set("background")}
-        placeholder="e.g. I worked at Farm Boy for 4 years helping customers, stocking shelves, and training new staff. I'm bilingual (EN/FR) and known for being reliable and fast."
-        multiline rows={4}
-      />
-
-      {/* Past Jobs */}
-      <Field
-        label="PAST JOBS"
-        hint="Role | Company | Years (one per line)"
-        value={info.experience}
-        onChange={set("experience")}
-        placeholder={"Grocery Clerk | Farm Boy | 2021–2025\nCashier | Loblaws | 2019–2021"}
-        multiline rows={3}
-      />
-
-      {/* Education */}
-      <Field
-        label="EDUCATION"
-        hint="Degree | School | Year"
-        value={info.education}
-        onChange={set("education")}
-        placeholder="Business Admin | Algonquin College | 2023"
-        multiline rows={2}
-      />
-
-      {/* Skills */}
-      <Field
-        label="KEY SKILLS"
-        hint="comma separated"
-        value={info.skills}
-        onChange={set("skills")}
-        placeholder="Customer service, bilingual EN/FR, inventory management, MS Office, cash handling"
-        multiline rows={2}
-      />
-
-      <Btn onClick={() => setStep(2)} disabled={!ready1} variant="primary">
-        Next — Paste Job Description <Icon d={I.arrow} size={14} color="#fff" />
-      </Btn>
-    </div>
-  );
-
-  // ── STEP 2: Job Description ────────────────────────────────────────────────
-  if (step === 2) return (
-    <div style={{ padding: "20px 18px" }}>
-      <Progress step={2} />
-
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
-        <button onClick={() => setStep(1)}
-          style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: T.sub, lineHeight: 1 }}>
-          <Icon d={I.back} size={15} color={T.sub} />
-        </button>
-        <div>
-          <p style={{ color: T.text, fontSize: 14, fontWeight: 700, margin: 0 }}>Paste Job Posting</p>
-          <p style={{ color: T.sub, fontSize: 11, margin: 0 }}>Copy the full posting from LinkedIn, Indeed, or anywhere</p>
-        </div>
-      </div>
-
-      {error && (
-        <div style={{ padding: "10px 13px", borderRadius: 10, background: T.redBg,
-          border: `1px solid ${T.redBr}`, color: T.red, fontSize: 12, marginBottom: 14, lineHeight: 1.5 }}>
-          {error}
-        </div>
-      )}
-
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-          <label style={{ fontFamily: T.mono, fontSize: 9, color: T.faint, letterSpacing: "0.1em" }}>
-            JOB DESCRIPTION <span style={{ color: T.red }}>*</span>
-          </label>
-          <span style={{ fontFamily: T.mono, fontSize: 9,
-            color: jobDesc.length >= 80 ? T.green : T.faint }}>
-            {jobDesc.length} chars {jobDesc.length >= 80 ? "✓" : "— need more"}
-          </span>
-        </div>
-        <textarea
-          value={jobDesc}
-          onChange={e => setJobDesc(e.target.value)}
-          onFocus={() => setJdFocused(true)}
-          onBlur={() => setJdFocused(false)}
-          rows={16}
-          placeholder={"Paste the complete job posting here.\n\nMore text = better keyword matching and ATS score.\n\nTip: include the requirements, responsibilities, and company overview sections."}
-          style={{ ...inputStyle(jdFocused), resize: "vertical" }}
-        />
-      </div>
-
-      <Btn onClick={generate} disabled={!ready2} variant="primary">
-        <Icon d={I.spark} size={14} color="#fff" />
-        Generate Tailored Resume
-      </Btn>
-    </div>
-  );
-
-  return null;
 }
