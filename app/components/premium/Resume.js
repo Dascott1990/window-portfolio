@@ -14,7 +14,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import GuestMode from "./GuestMode";
+import ResumeGuestMode from "./ResumeGuestMode";
 
 // ── Icon primitive ─────────────────────────────────────────────────────────────
 const Ic = ({ d, size = 18, sw = 1.6, color = "currentColor", fill = "none" }) => (
@@ -756,6 +756,12 @@ const Resume = ({ onClose }) => {
     </>
   );
 
+  // Guest mode is a fully self-contained, full-screen experience —
+  // it owns its own header, preview, and close button.
+  if (mode === "guest") {
+    return <ResumeGuestMode onClose={() => setMode("mine")} />;
+  }
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       style={{ position: "fixed", inset: 0, bottom: "var(--taskbar-height,52px)", zIndex: 50,
@@ -855,36 +861,6 @@ const Resume = ({ onClose }) => {
               </div>
             </div>
           </>
-        )}
-
-        {/* ── GUEST MODE ── */}
-        {mode === "guest" && (
-          <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-            {/* Wizard panel */}
-            <div style={{ width: isMobile ? "100%" : 440, flexShrink: 0, overflowY: "auto",
-              borderRight: isMobile ? "none" : `1px solid ${T.border}`, background: T.panel, scrollbarWidth: "none" }}>
-              <GuestMode
-                onResume={(r) => setResumeData(r)}
-                isMobile={isMobile}
-              />
-            </div>
-            {/* Preview — only shown on desktop */}
-            {!isMobile && (
-              <div ref={canvasRef} style={{ flex: 1, overflowY: "auto", background: "#D0D0D0",
-                display: "flex", flexDirection: "column", alignItems: "center", padding: "20px 0 40px", scrollbarWidth: "thin" }}>
-                <div style={{ fontFamily: T.mono, fontSize: 9, color: "#888", marginBottom: 10, letterSpacing: "0.08em" }}>
-                  {Math.round(scale * 100)}% · Live preview updates after generation
-                </div>
-                <div style={{ width: scaledW, height: scaledH, flexShrink: 0, position: "relative" }}>
-                  <div style={{ width: A4W, height: A4H, transform: `scale(${scale})`, transformOrigin: "top left", position: "absolute", top: 0, left: 0, boxShadow: "0 4px 32px rgba(0,0,0,0.3)" }}>
-                    <Preview ref={previewRef} resume={resumeData} style={style}
-                      onEditContact={onEditContact} onEditText={onEditText}
-                      onEditBullet={onEditBullet} onEditJob={onEditJob} onEditDegree={onEditDegree} />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
         )}
       </div>
     </motion.div>

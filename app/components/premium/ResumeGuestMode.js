@@ -95,6 +95,26 @@ function Icon({ name, size = 16, color = "currentColor" }) {
   );
 }
 
+// ── Responsive viewport hook — tracks real width, updates on resize/rotate ────
+function useViewport() {
+  const [w, setW] = useState(() => (typeof window !== "undefined" ? window.innerWidth : 1280));
+  useEffect(() => {
+    const onResize = () => setW(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+    };
+  }, []);
+  return {
+    width: w,
+    isPhone:   w < 640,
+    isTablet:  w >= 640 && w < 1024,
+    isDesktop: w >= 1024,
+  };
+}
+
 // ── Spinner ────────────────────────────────────────────────────────────────────
 function Spinner({ size = 20, color = C.blue }) {
   return (
@@ -121,13 +141,14 @@ function Btn({ children, onClick, disabled, variant = "primary", small, icon, lo
       onClick={disabled ? undefined : onClick}
       style={{
         display: "inline-flex", alignItems: "center", justifyContent: "center",
-        gap: 6, padding: small ? "6px 12px" : "10px 16px",
+        gap: 6, padding: small ? "8px 14px" : "12px 16px",
+        minHeight: small ? 36 : 44, // WCAG AA minimum tap target
         borderRadius: 10, border: `1px solid ${v.border}`,
         background: v.bg, color: v.fg,
-        fontSize: small ? 12 : 13, fontWeight: 600, fontFamily: C.sans,
+        fontSize: small ? 13 : 14, fontWeight: 600, fontFamily: C.sans,
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.4 : 1, width: small ? "auto" : "100%",
-        transition: "opacity 0.15s",
+        transition: "opacity 0.15s", boxSizing: "border-box",
       }}>
       {loading ? <Spinner size={14} color={v.fg} /> : icon && <Icon name={icon} size={14} color={v.fg} />}
       {children}
@@ -138,32 +159,40 @@ function Btn({ children, onClick, disabled, variant = "primary", small, icon, lo
 // ── Input / Textarea ───────────────────────────────────────────────────────────
 function Field({ label, required, hint, value, onChange, placeholder, multiline, rows = 3, mono }) {
   const [focused, setFocused] = useState(false);
+  const hasValue = !!value;
+  const float = focused || hasValue;
   const base = {
     width: "100%", background: C.surface,
     border: `1px solid ${focused ? C.blueBr : C.border}`,
-    borderRadius: 9, padding: "9px 12px",
-    color: C.text, fontSize: 13,
+    borderRadius: 8, padding: float ? "16px 11px 6px" : "11px 11px",
+    minHeight: 44, // WCAG AA tap target
+    color: C.text, fontSize: 14.5,
     fontFamily: mono ? C.mono : C.sans,
     boxSizing: "border-box", outline: "none",
-    transition: "border-color 0.15s", lineHeight: 1.5,
+    transition: "border-color 0.12s, padding 0.12s", lineHeight: 1.45,
   };
   const events = {
     value,
     onChange: e => onChange(e.target.value),
     onFocus: () => setFocused(true),
     onBlur:  () => setFocused(false),
-    placeholder,
+    placeholder: float ? placeholder : "",
+    "aria-label": label,
   };
   return (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between",
-        alignItems: "baseline", marginBottom: 5 }}>
-        <label style={{ fontFamily: C.mono, fontSize: 10, color: C.faint,
-          letterSpacing: "0.08em", fontWeight: 600 }}>
-          {label}{required && <span style={{ color: C.red, marginLeft: 2 }}>*</span>}
-        </label>
-        {hint && <span style={{ fontFamily: C.mono, fontSize: 10, color: C.faint }}>{hint}</span>}
-      </div>
+    <div style={{ marginBottom: 8, position: "relative" }}>
+      <span aria-hidden style={{
+        position: "absolute", left: 12, top: float ? 6 : "50%",
+        transform: float ? "none" : "translateY(-50%)",
+        fontSize: float ? 9.5 : 14.5, fontWeight: float ? 600 : 400,
+        color: float ? C.faint : C.muted,
+        fontFamily: float ? C.mono : C.sans,
+        letterSpacing: float ? "0.06em" : "normal",
+        pointerEvents: "none", transition: "all 0.12s",
+        whiteSpace: "nowrap",
+      }}>
+        {label}{required && <span style={{ color: C.red }}> *</span>}{hint && float && <span style={{ color: C.faint, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}> · {hint}</span>}
+      </span>
       {multiline
         ? <textarea {...events} rows={rows} style={{ ...base, resize: "vertical" }} />
         : <input    {...events} type="text" style={base} />
@@ -176,37 +205,17 @@ function Field({ label, required, hint, value, onChange, placeholder, multiline,
 function Steps({ current }) {
   const steps = ["Your Info", "Job Posting"];
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 22 }}>
-      {steps.map((label, i) => {
-        const idx = i + 1;
-        const done = idx < current;
-        const active = idx === current;
-        return (
-          <React.Fragment key={idx}>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-              <div style={{
-                width: 28, height: 28, borderRadius: "50%",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                background: done ? C.green : active ? C.blue : C.surface,
-                border: `1.5px solid ${done ? C.greenBr : active ? C.blueBr : C.border}`,
-                transition: "all 0.2s",
-              }}>
-                {done
-                  ? <Icon name="Check" size={13} color="#fff" />
-                  : <span style={{ fontSize: 12, fontWeight: 700,
-                      color: active ? "#fff" : C.muted }}>{idx}</span>
-                }
-              </div>
-              <span style={{ fontSize: 10, fontFamily: C.mono, fontWeight: 600,
-                color: active ? C.text : C.muted, whiteSpace: "nowrap" }}>{label}</span>
-            </div>
-            {i < steps.length - 1 && (
-              <div style={{ flex: 1, height: 1, background: done ? C.greenBr : C.border,
-                margin: "0 6px 16px", transition: "background 0.2s" }} />
-            )}
-          </React.Fragment>
-        );
-      })}
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
+        {steps.map((_, i) => (
+          <div key={i} style={{ flex: 1, height: 3, borderRadius: 2,
+            background: i + 1 <= current ? C.blue : C.border,
+            transition: "background 0.2s" }} />
+        ))}
+      </div>
+      <span style={{ fontSize: 11, fontFamily: C.mono, color: C.faint, letterSpacing: "0.04em" }}>
+        Step {current} of {steps.length} · {steps[current - 1]}
+      </span>
     </div>
   );
 }
@@ -811,7 +820,7 @@ async function apiDelete(id) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// MAIN COMPONENT
+// MAIN COMPONENT — fully responsive: phone / tablet / desktop
 // ═══════════════════════════════════════════════════════════════════════════════
 const EMPTY_INFO = {
   name: "", title: "", location: "", email: "", phone: "",
@@ -819,61 +828,60 @@ const EMPTY_INFO = {
 };
 
 export default function ResumeGuestMode({ onClose }) {
-  // Tab: "new" | "templates"
-  const [tab,       setTab]       = useState("new");
-  // Wizard step: 1 | 2
-  const [step,      setStep]      = useState(1);
-  // Form
-  const [info,      setInfo]      = useState(EMPTY_INFO);
-  const [jobDesc,   setJobDesc]   = useState("");
-  // Generation
+  const { isPhone, isTablet, isDesktop } = useViewport();
+  const showSidebarAndPreview = isDesktop; // side-by-side only on desktop
+
+  // Mobile/tablet: which screen is showing — "panel" (form/list) or "preview"
+  const [mobileView, setMobileView] = useState("panel");
+
+  const [tab,        setTab]        = useState("new");   // "new" | "templates"
+  const [step,       setStep]       = useState(1);        // 1 | 2 | 3
+  const [info,       setInfo]       = useState(EMPTY_INFO);
+  const [jobDesc,    setJobDesc]    = useState("");
   const [generating, setGenerating] = useState(false);
-  const [error,     setError]     = useState("");
-  const [genResult, setGenResult] = useState(null); // { keywords, saved_id, job_location }
-  // Resume state
-  const [resume,    dispatch]     = useReducer(resumeReducer, null);
+  const [error,      setError]      = useState("");
+  const [genResult,  setGenResult]  = useState(null);
+  const [resume,     dispatch]      = useReducer(resumeReducer, null);
   const onEdit = useCallback(onEditHandler(dispatch), [dispatch]);
-  // Style
-  const [docStyle,  setDocStyle]  = useState(DEFAULT_STYLE);
-  // Saved resumes list
-  const [saved,     setSaved]     = useState([]);
+  const [docStyle,   setDocStyle]   = useState(DEFAULT_STYLE);
+  const [saved,      setSaved]      = useState([]);
   const [loadingSaved, setLoadingSaved] = useState(false);
-  // Download state
-  const [downloading, setDownloading] = useState(null); // "docx" | "pdf" | null
-  // Scale for preview
-  const [scale,     setScale]     = useState(1);
+  const [downloading, setDownloading]   = useState(null);
+  const [scale,       setScale]         = useState(1);
+
   const canvasRef  = useRef(null);
   const previewRef = useRef(null);
 
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 700;
-
-  // Compute preview scale
+  // Scale preview to fit available width
   useEffect(() => {
     const compute = () => {
       if (!canvasRef.current) return;
-      const available = canvasRef.current.clientWidth - 40;
-      setScale(Math.min(1, Math.max(0.3, available / 794))); // 210mm at 96dpi ≈ 794px
+      const pad = isPhone ? 16 : 40;
+      const available = canvasRef.current.clientWidth - pad;
+      setScale(Math.min(1, Math.max(0.25, available / 794)));
     };
     compute();
     const ro = window.ResizeObserver ? new ResizeObserver(compute) : null;
     if (ro && canvasRef.current) ro.observe(canvasRef.current);
     window.addEventListener("resize", compute);
     return () => { ro?.disconnect(); window.removeEventListener("resize", compute); };
-  }, []);
+  }, [isPhone, mobileView]);
 
-  // Load saved when tab switches
   useEffect(() => {
     if (tab !== "templates") return;
     setLoadingSaved(true);
     apiListSaved().then(setSaved).finally(() => setLoadingSaved(false));
   }, [tab]);
 
-  const set = (k) => (v) => setInfo(p => ({ ...p, [k]: v }));
+  // Auto-switch to preview screen on phone once resume is ready
+  useEffect(() => {
+    if (!isDesktop && resume && step === 3) setMobileView("preview");
+  }, [resume, step, isDesktop]);
 
+  const set = (k) => (v) => setInfo(p => ({ ...p, [k]: v }));
   const ready1 = info.name.trim() && info.title.trim() && info.location.trim();
   const ready2 = jobDesc.trim().length >= 80;
 
-  // ── Generate ───────────────────────────────────────────────────────────────
   const generate = async () => {
     setGenerating(true);
     setError("");
@@ -895,20 +903,17 @@ export default function ResumeGuestMode({ onClose }) {
     }
   };
 
-  // ── Load saved resume ──────────────────────────────────────────────────────
   const loadSaved = async (id) => {
     try {
       const data = await apiGetSaved(id);
-      const resumeObj = { contact: data.contact || {}, sections: data.sections || [], keywords: data.keywords || [], saved_id: id };
-      dispatch({ type: "SET", resume: resumeObj });
-      setTab("new");
-      setStep(3);
+      dispatch({ type: "SET", resume: { contact: data.contact || {}, sections: data.sections || [], keywords: data.keywords || [], saved_id: id } });
+      setTab("new"); setStep(3);
+      if (!isDesktop) setMobileView("preview");
     } catch (e) {
       setError("Could not load: " + e.message);
     }
   };
 
-  // ── Downloads ──────────────────────────────────────────────────────────────
   const handleDocx = async () => {
     if (!resume) return;
     setDownloading("docx");
@@ -932,12 +937,217 @@ export default function ResumeGuestMode({ onClose }) {
   const resetWizard = () => {
     setStep(1); setInfo(EMPTY_INFO); setJobDesc("");
     setError(""); setGenResult(null);
+    if (!isDesktop) setMobileView("panel");
   };
 
-  // ── Layout ─────────────────────────────────────────────────────────────────
-  const SZ = { sidebar: 320, A4w: 794, A4h: 1123 };
-  const scaledW = Math.round(SZ.A4w * scale);
-  const scaledH = Math.round(SZ.A4h * scale);
+  const A4w = 794;
+  const A4h = 1123;
+  const scaledW = Math.round(A4w * scale);
+  const scaledH = Math.round(A4h * scale);
+
+  // ── Reusable preview canvas (used in both desktop pane and mobile screen) ──
+  const PreviewCanvas = () => (
+    <div ref={canvasRef} style={{ flex: 1, overflowY: "auto", background: "#C8C8C8",
+      display: "flex", flexDirection: "column", alignItems: "center",
+      padding: isPhone ? "14px 0 24px" : "24px 0 48px", scrollbarWidth: "thin" }}>
+      <p style={{ fontFamily: C.mono, fontSize: 9, color: "#666", margin: "0 0 10px",
+        letterSpacing: "0.08em", userSelect: "none", textAlign: "center", padding: "0 12px" }}>
+        {Math.round(scale * 100)}% · {resume ? "Tap any text to edit" : "Generate to see your resume"}
+      </p>
+      <div style={{ width: scaledW, height: scaledH, flexShrink: 0, position: "relative" }}>
+        <div style={{ width: A4w, height: A4h, position: "absolute", top: 0, left: 0,
+          transform: `scale(${scale})`, transformOrigin: "top left",
+          boxShadow: "0 6px 40px rgba(0,0,0,0.35)" }}>
+          <LivePreview ref={previewRef} resume={resume} docStyle={docStyle} onEdit={onEdit} />
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── Reusable sidebar/panel content (form, templates list, or results) ──────
+  const PanelContent = () => (
+    <>
+      {/* BUILD */}
+      {tab === "new" && (
+        <div style={{ flex: 1, overflowY: "auto", scrollbarWidth: "none" }}>
+          {step === 3 && genResult && (
+            <div style={{ padding: "16px 16px 18px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 12 }}>
+                <div style={{ width: 30, height: 30, borderRadius: "50%", background: C.greenBg,
+                  border: `1px solid ${C.greenBr}`, display: "flex", alignItems: "center",
+                  justifyContent: "center", flexShrink: 0 }}>
+                  <Icon name="Check" size={14} color={C.green} />
+                </div>
+                <div>
+                  <p style={{ color: C.text, fontSize: 13.5, fontWeight: 700, margin: 0 }}>Resume ready</p>
+                  <p style={{ color: C.muted, fontSize: 11.5, margin: 0 }}>
+                    {isPhone ? "Open Preview to edit" : "Click any text to edit"}
+                    {genResult.job_location && ` · ${genResult.job_location}`}
+                  </p>
+                </div>
+              </div>
+
+              {genResult.keywords?.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <p style={{ fontFamily: C.mono, fontSize: 9.5, color: C.faint, letterSpacing: "0.08em", margin: "0 0 7px" }}>
+                    KEYWORDS MATCHED
+                  </p>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                    {genResult.keywords.map(k => <KwPill key={k} word={k} />)}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                {!isDesktop && (
+                  <Btn variant="primary" icon="Eye" onClick={() => setMobileView("preview")} small>
+                    Open Preview
+                  </Btn>
+                )}
+                <Btn variant="gold" icon="FileDown" onClick={handleDocx}
+                  disabled={!!downloading} loading={downloading === "docx"} small>
+                  Download Word
+                </Btn>
+                <Btn variant="ghost" icon="FileDown" onClick={handlePdf}
+                  disabled={!!downloading} loading={downloading === "pdf"} small>
+                  Download PDF
+                </Btn>
+                <Btn variant="ghost" icon="RefreshCw" onClick={resetWizard} small>
+                  Build another
+                </Btn>
+              </div>
+            </div>
+          )}
+
+          {step < 3 && (
+            <div style={{ padding: "16px 16px 18px" }}>
+              <Steps current={step} />
+
+              {error && (
+                <div role="alert" style={{ display: "flex", gap: 8, padding: "10px 12px", borderRadius: 8,
+                  background: C.redBg, border: `1px solid ${C.redBr}`,
+                  color: C.red, fontSize: 12.5, marginBottom: 12, lineHeight: 1.5 }}>
+                  <Icon name="AlertCircle" size={14} color={C.red} />
+                  {error}
+                </div>
+              )}
+
+              {step === 1 && (
+                <>
+                  <div style={{ display: "grid",
+                    gridTemplateColumns: isPhone ? "1fr" : "1fr 1fr", gap: "0 8px" }}>
+                    <div style={{ gridColumn: "1/-1" }}>
+                      <Field label="FULL NAME" required value={info.name} onChange={set("name")} placeholder="Jane Smith" />
+                    </div>
+                    <Field label="TARGET JOB TITLE" required value={info.title} onChange={set("title")} placeholder="Sales Associate" />
+                    <Field label="LOCATION" required hint="City, Province" value={info.location} onChange={set("location")} placeholder="Toronto, ON" />
+                    <Field label="EMAIL" value={info.email} onChange={set("email")} placeholder="jane@email.com" />
+                    <Field label="PHONE" value={info.phone} onChange={set("phone")} placeholder="(416) 555-0100" />
+                  </div>
+
+                  <Field label="BACKGROUND" hint="your own words"
+                    value={info.background} onChange={set("background")} multiline rows={3}
+                    placeholder="e.g. I worked at Farm Boy for 4 years stocking shelves, helping customers, and training new staff. Bilingual EN/FR." />
+
+                  <Field label="PAST JOBS" hint="Role | Company | Years"
+                    value={info.experience} onChange={set("experience")} multiline rows={2}
+                    placeholder={"Grocery Clerk | Farm Boy | 2021–2025\nCashier | Loblaws | 2019–2021"} />
+
+                  <Field label="EDUCATION" hint="Degree | School | Year"
+                    value={info.education} onChange={set("education")} multiline rows={2}
+                    placeholder="Business Admin | Algonquin College | 2023" />
+
+                  <Field label="SKILLS" hint="comma separated"
+                    value={info.skills} onChange={set("skills")} multiline rows={2}
+                    placeholder="Customer service, bilingual EN/FR, inventory, MS Office" />
+
+                  <Btn icon="ChevronRight" onClick={() => { setError(""); setStep(2); }} disabled={!ready1}>
+                    Next — Job Posting
+                  </Btn>
+                </>
+              )}
+
+              {step === 2 && (
+                <>
+                  <button onClick={() => setStep(1)} aria-label="Back to your information"
+                    style={{ display: "flex", alignItems: "center", gap: 5, background: "none",
+                      border: "none", cursor: "pointer", color: C.muted, fontSize: 13,
+                      padding: "6px 0 12px", minHeight: 32, fontFamily: C.sans }}>
+                    <Icon name="ChevronLeft" size={14} color={C.muted} /> Back
+                  </button>
+
+                  <Field
+                    label="JOB DESCRIPTION" required
+                    hint={`${jobDesc.length} chars${jobDesc.length >= 80 ? " ✓" : ""}`}
+                    value={jobDesc} onChange={setJobDesc} multiline rows={isPhone ? 10 : 18} mono
+                    placeholder={"Paste the full job posting here — from any job board.\n\nMore text = better keyword matching."} />
+
+                  <Btn icon="Sparkles" onClick={generate} disabled={!ready2 || generating} loading={generating}>
+                    {generating ? "Generating…" : "Generate Resume"}
+                  </Btn>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TEMPLATES */}
+      {tab === "templates" && (
+        <div style={{ flex: 1, overflowY: "auto", padding: 14, scrollbarWidth: "none" }}>
+          {loadingSaved ? (
+            <div style={{ display: "flex", justifyContent: "center", padding: "40px 0" }}>
+              <Spinner size={28} />
+            </div>
+          ) : saved.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "40px 16px" }}>
+              <Icon name="FileText" size={32} color={C.border} />
+              <p style={{ color: C.muted, fontSize: 14, margin: "12px 0 4px" }}>No saved resumes yet</p>
+              <p style={{ color: C.faint, fontSize: 12, margin: "0 0 16px" }}>Generate one — it saves automatically</p>
+              <Btn small variant="ghost" icon="Plus" onClick={() => setTab("new")}>Build one now</Btn>
+            </div>
+          ) : (
+            <>
+              <p style={{ fontFamily: C.mono, fontSize: 10, color: C.faint, letterSpacing: "0.1em", margin: "0 0 12px" }}>
+                {saved.length} SAVED RESUME{saved.length !== 1 ? "S" : ""}
+              </p>
+              {saved.map(r => (
+                <div key={r.id} style={{ background: C.surface, border: `1px solid ${C.border}`,
+                  borderRadius: 12, padding: "13px 14px", marginBottom: 9 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <p style={{ color: C.text, fontSize: 14, fontWeight: 600, margin: "0 0 2px",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name || "Unnamed"}</p>
+                      <p style={{ color: C.muted, fontSize: 12, margin: "0 0 8px",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.role || ""}</p>
+                      {r.keywords?.length > 0 && (
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
+                          {r.keywords.slice(0, 3).map(k => (
+                            <span key={k} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 20,
+                              background: C.blueBg, border: `1px solid ${C.blueBr}`, color: C.blue, fontFamily: C.mono }}>{k}</span>
+                          ))}
+                        </div>
+                      )}
+                      <p style={{ fontFamily: C.mono, fontSize: 10, color: C.faint, margin: 0 }}>
+                        {r.generated_at ? new Date(r.generated_at).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : ""}
+                      </p>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
+                      <Btn small icon="Eye" onClick={() => loadSaved(r.id)}>Load</Btn>
+                      <Btn small variant="danger" icon="Trash2" onClick={async () => { await apiDelete(r.id); setSaved(s => s.filter(x => x.id !== r.id)); }}>
+                        <span className="sr-only">Delete</span>
+                      </Btn>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <Btn variant="ghost" icon="Plus" onClick={() => setTab("new")}>New resume</Btn>
+            </>
+          )}
+        </div>
+      )}
+    </>
+  );
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -945,352 +1155,85 @@ export default function ResumeGuestMode({ onClose }) {
         zIndex: 50, background: C.bg, display: "flex", flexDirection: "column",
         fontFamily: C.sans, overflow: "hidden" }}>
 
-      {/* Print styles injected globally */}
-      <style>{`@media print{body *{visibility:hidden!important}#__resume_pdf_print__,#__resume_pdf_print__ *{visibility:visible!important}#__resume_pdf_print__{position:fixed!important;left:0!important;top:0!important;width:100%!important;transform:none!important;box-shadow:none!important}}`}</style>
+      <style>{`
+        @media print{body *{visibility:hidden!important}#__resume_pdf_print__,#__resume_pdf_print__ *{visibility:visible!important}#__resume_pdf_print__{position:fixed!important;left:0!important;top:0!important;width:100%!important;transform:none!important;box-shadow:none!important}}
+        .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
+      `}</style>
 
-      {/* ── Top bar ─────────────────────────────────────────────────────────── */}
-      <div style={{ flexShrink: 0, height: 52, display: "flex", alignItems: "center",
-        justifyContent: "space-between", padding: "0 14px",
-        background: C.panel, borderBottom: `1px solid ${C.border}`, gap: 10 }}>
+      {/* ── Top bar ── */}
+      <header style={{ flexShrink: 0, height: 48, display: "flex", alignItems: "center",
+        justifyContent: "space-between", padding: "0 10px", background: C.panel,
+        borderBottom: `1px solid ${C.border}`, gap: 8 }}>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Icon name="FileText" size={18} color={C.gold} />
-          <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>Resume Builder</span>
-          <span style={{ fontSize: 11, fontFamily: C.mono, color: C.muted,
-            background: C.raised, border: `1px solid ${C.border}`,
-            padding: "2px 8px", borderRadius: 6 }}>Guest Mode</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+          <Icon name="FileText" size={16} color={C.gold} />
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: C.text, whiteSpace: "nowrap" }}>Resume</span>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-          {/* Style: accent color */}
-          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-            {ACCENTS.map(a => (
-              <button key={a.id} title={a.label} onClick={() => setDocStyle(s => ({ ...s, accent: a.id }))}
-                style={{ width: 16, height: 16, borderRadius: "50%", background: a.hex, cursor: "pointer",
-                  border: docStyle.accent === a.id ? "2.5px solid #fff" : "2px solid rgba(255,255,255,0.2)",
-                  transition: "border 0.15s" }} />
-            ))}
-          </div>
-
-          {/* Download — only enabled when resume exists */}
-          <Btn small icon={downloading === "docx" ? undefined : "FileDown"}
-            loading={downloading === "docx"}
+        <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+          <Btn small icon="FileDown" loading={downloading === "docx"}
             onClick={handleDocx} disabled={!resume || !!downloading} variant="gold">
-            Word
+            {isPhone ? "" : "Word"}
           </Btn>
-          <Btn small icon={downloading === "pdf" ? undefined : "FileDown"}
-            loading={downloading === "pdf"}
-            onClick={handlePdf} disabled={!resume || !!downloading}
-            variant="ghost">
-            PDF
+          <Btn small icon="FileDown" loading={downloading === "pdf"}
+            onClick={handlePdf} disabled={!resume || !!downloading} variant="ghost">
+            {isPhone ? "" : "PDF"}
           </Btn>
-
-          <button onClick={onClose}
-            style={{ width: 32, height: 32, borderRadius: "50%",
-              background: C.raised, border: `1px solid ${C.border}`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              cursor: "pointer", color: C.muted, flexShrink: 0 }}>
+          <button onClick={onClose} aria-label="Close resume builder"
+            style={{ width: 32, height: 32, borderRadius: "50%", background: C.raised,
+              border: `1px solid ${C.border}`, display: "flex", alignItems: "center",
+              justifyContent: "center", cursor: "pointer", color: C.muted, flexShrink: 0 }}>
             <Icon name="X" size={14} color={C.muted} />
           </button>
         </div>
+      </header>
+
+      {/* ── Single segmented nav row — Build / Saved (+ Preview on mobile) ── */}
+      <div role="tablist" aria-label="View" style={{ display: "flex", flexShrink: 0,
+        background: C.surface, borderBottom: `1px solid ${C.border}`, padding: 5, gap: 5 }}>
+        {[
+          { id: "new",       icon: "Sparkles", label: "Build" },
+          ...(!isDesktop ? [{ id: "preview", icon: "Eye", label: "Preview" }] : []),
+          { id: "templates", icon: "Layout",   label: "Saved" },
+        ].map(v => {
+          const active = isDesktop ? tab === v.id : (v.id === "preview" ? mobileView === "preview" : (mobileView === "panel" && tab === v.id));
+          const onTap = () => {
+            if (v.id === "preview") { setMobileView("preview"); return; }
+            setTab(v.id);
+            if (!isDesktop) setMobileView("panel");
+          };
+          return (
+            <button key={v.id} role="tab" aria-selected={active} onClick={onTap}
+              style={{ flex: 1, minHeight: 38, display: "flex", alignItems: "center",
+                justifyContent: "center", gap: 6, borderRadius: 7, border: "none", cursor: "pointer",
+                background: active ? C.blue : "transparent",
+                color: active ? "#fff" : C.muted,
+                fontSize: 12.5, fontWeight: 700, fontFamily: C.sans, transition: "all 0.12s" }}>
+              <Icon name={v.icon} size={13} color={active ? "#fff" : C.muted} />
+              {v.label}
+            </button>
+          );
+        })}
       </div>
 
-      {/* ── Body ────────────────────────────────────────────────────────────── */}
+      {/* ── Body ── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
-        {/* ── LEFT SIDEBAR ──────────────────────────────────────────────────── */}
-        <div style={{ width: SZ.sidebar, flexShrink: 0, display: "flex",
-          flexDirection: "column", background: C.panel,
-          borderRight: `1px solid ${C.border}` }}>
-
-          {/* Tab bar */}
-          <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-            {[
-              { id: "new",       icon: "Sparkles", label: "Build" },
-              { id: "templates", icon: "Layout",   label: "Guest Templates" },
-            ].map(t => (
-              <button key={t.id} onClick={() => setTab(t.id)}
-                style={{ flex: 1, padding: "12px 8px", display: "flex", alignItems: "center",
-                  justifyContent: "center", gap: 6, background: "none", border: "none",
-                  cursor: "pointer", borderBottom: tab === t.id ? `2px solid ${C.blue}` : "2px solid transparent",
-                  color: tab === t.id ? C.text : C.muted, fontSize: 12, fontWeight: 700,
-                  fontFamily: C.mono, letterSpacing: "0.04em", transition: "color 0.15s" }}>
-                <Icon name={t.icon} size={13} color={tab === t.id ? C.blue : C.muted} />
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          {/* ── BUILD TAB ───────────────────────────────────────────────────── */}
-          {tab === "new" && (
-            <div style={{ flex: 1, overflowY: "auto", scrollbarWidth: "none" }}>
-
-              {/* Step 3 (done) view */}
-              {step === 3 && genResult && (
-                <div style={{ padding: "20px 18px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-                    <div style={{ width: 36, height: 36, borderRadius: "50%",
-                      background: C.greenBg, border: `1px solid ${C.greenBr}`,
-                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <Icon name="Check" size={16} color={C.green} />
-                    </div>
-                    <div>
-                      <p style={{ color: C.text, fontSize: 14, fontWeight: 700, margin: "0 0 2px" }}>Resume ready</p>
-                      <p style={{ color: C.muted, fontSize: 11, margin: 0 }}>Click any text in the preview to edit</p>
-                    </div>
-                  </div>
-
-                  {genResult.job_location && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 11px",
-                      background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, marginBottom: 10 }}>
-                      <Icon name="MapPin" size={13} color={C.muted} />
-                      <p style={{ color: C.muted, fontSize: 12, margin: 0 }}>
-                        Location matched to posting: <strong style={{ color: C.text }}>{genResult.job_location}</strong>
-                      </p>
-                    </div>
-                  )}
-
-                  {genResult.saved_id && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 11px",
-                      background: C.greenBg, border: `1px solid ${C.greenBr}`, borderRadius: 9, marginBottom: 10 }}>
-                      <Icon name="Check" size={13} color={C.green} />
-                      <p style={{ color: C.green, fontSize: 12, margin: 0 }}>Saved → visible in Guest Templates tab</p>
-                    </div>
-                  )}
-
-                  {genResult.keywords?.length > 0 && (
-                    <div style={{ marginBottom: 16 }}>
-                      <p style={{ fontFamily: C.mono, fontSize: 9, color: C.faint,
-                        letterSpacing: "0.1em", margin: "0 0 8px" }}>ATS KEYWORDS EMBEDDED</p>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                        {genResult.keywords.map(k => <KwPill key={k} word={k} />)}
-                      </div>
-                    </div>
-                  )}
-
-                  <div style={{ padding: "12px 13px", background: C.surface,
-                    border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 14 }}>
-                    <p style={{ fontFamily: C.mono, fontSize: 9, color: C.faint,
-                      letterSpacing: "0.08em", margin: "0 0 4px" }}>DOWNLOADS</p>
-                    <p style={{ color: C.muted, fontSize: 12, margin: 0, lineHeight: 1.6 }}>
-                      <strong style={{ color: C.text }}>Word (.docx)</strong> — fully editable in Word, Google Docs, LibreOffice<br />
-                      <strong style={{ color: C.text }}>PDF</strong> — text-based via print dialog; text is selectable & copyable
-                    </p>
-                  </div>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <Btn variant="gold" icon="FileDown" onClick={handleDocx} disabled={!!downloading}
-                      loading={downloading === "docx"}>
-                      Download Word (.docx)
-                    </Btn>
-                    <Btn variant="ghost" icon="FileDown" onClick={handlePdf} disabled={!!downloading}
-                      loading={downloading === "pdf"}>
-                      Download PDF (Print)
-                    </Btn>
-                    <Btn variant="ghost" icon="RefreshCw" onClick={resetWizard}>
-                      Build another resume
-                    </Btn>
-                  </div>
-                </div>
-              )}
-
-              {/* Wizard steps 1 & 2 */}
-              {step < 3 && (
-                <div style={{ padding: "20px 18px" }}>
-                  <Steps current={step} />
-
-                  {error && (
-                    <div style={{ display: "flex", gap: 8, padding: "10px 12px", borderRadius: 9,
-                      background: C.redBg, border: `1px solid ${C.redBr}`,
-                      color: C.red, fontSize: 12, marginBottom: 16, lineHeight: 1.5 }}>
-                      <Icon name="AlertCircle" size={14} color={C.red} />
-                      {error}
-                    </div>
-                  )}
-
-                  {/* Step 1: Info */}
-                  {step === 1 && (
-                    <>
-                      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 16 }}>
-                        <Icon name="User" size={15} color={C.blue} />
-                        <span style={{ color: C.muted, fontSize: 12 }}>Fill what you know — AI fills the rest</span>
-                      </div>
-
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
-                        <div style={{ gridColumn: "1/-1" }}>
-                          <Field label="FULL NAME" required value={info.name} onChange={set("name")} placeholder="Jane Smith" />
-                        </div>
-                        <Field label="TARGET JOB TITLE" required value={info.title} onChange={set("title")} placeholder="Sales Associate" />
-                        <Field label="LOCATION" required hint="City, Province" value={info.location} onChange={set("location")} placeholder="Toronto, ON" />
-                        <Field label="EMAIL" value={info.email} onChange={set("email")} placeholder="jane@email.com" />
-                        <Field label="PHONE" value={info.phone} onChange={set("phone")} placeholder="(416) 555-0100" />
-                      </div>
-
-                      <Field label="YOUR BACKGROUND" hint="your own words"
-                        value={info.background} onChange={set("background")} multiline rows={4}
-                        placeholder="e.g. I worked at Farm Boy for 4 years stocking shelves, helping customers, and training new staff. Bilingual EN/FR." />
-
-                      <Field label="PAST JOBS" hint="Role | Company | Years — one per line"
-                        value={info.experience} onChange={set("experience")} multiline rows={3}
-                        placeholder={"Grocery Clerk | Farm Boy | 2021–2025\nCashier | Loblaws | 2019–2021"} />
-
-                      <Field label="EDUCATION" hint="Degree | School | Year"
-                        value={info.education} onChange={set("education")} multiline rows={2}
-                        placeholder="Business Admin | Algonquin College | 2023" />
-
-                      <Field label="KEY SKILLS" hint="comma separated"
-                        value={info.skills} onChange={set("skills")} multiline rows={2}
-                        placeholder="Customer service, bilingual EN/FR, inventory, MS Office" />
-
-                      <Btn icon="ChevronRight" onClick={() => { setError(""); setStep(2); }} disabled={!ready1}>
-                        Next — Paste Job Posting
-                      </Btn>
-                    </>
-                  )}
-
-                  {/* Step 2: Job description */}
-                  {step === 2 && (
-                    <>
-                      <button onClick={() => setStep(1)}
-                        style={{ display: "flex", alignItems: "center", gap: 5, background: "none",
-                          border: "none", cursor: "pointer", color: C.muted, fontSize: 12,
-                          padding: "0 0 14px", fontFamily: C.sans }}>
-                        <Icon name="ChevronLeft" size={14} color={C.muted} /> Back
-                      </button>
-
-                      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 14 }}>
-                        <Icon name="Clipboard" size={15} color={C.blue} />
-                        <span style={{ color: C.muted, fontSize: 12 }}>Paste the full posting from LinkedIn, Indeed, anywhere</span>
-                      </div>
-
-                      <Field
-                        label="JOB DESCRIPTION" required
-                        hint={`${jobDesc.length} chars${jobDesc.length >= 80 ? " ✓" : " — need more"}`}
-                        value={jobDesc} onChange={setJobDesc} multiline rows={18} mono
-                        placeholder={"Paste the full job posting here.\n\nMore text = better ATS keyword matching.\n\nInclude: job title, requirements, responsibilities, company description."} />
-
-                      <Btn icon="Sparkles" onClick={generate} disabled={!ready2 || generating} loading={generating}>
-                        {generating ? "Generating…" : "Generate Tailored Resume"}
-                      </Btn>
-                    </>
-                  )}
-                </div>
-              )}
+        {/* Desktop: sidebar + preview side by side */}
+        {isDesktop && (
+          <>
+            <div style={{ width: 340, flexShrink: 0, display: "flex", flexDirection: "column",
+              background: C.panel, borderRight: `1px solid ${C.border}` }}>
+              <PanelContent />
             </div>
-          )}
-
-          {/* ── GUEST TEMPLATES TAB ─────────────────────────────────────────── */}
-          {tab === "templates" && (
-            <div style={{ flex: 1, overflowY: "auto", padding: "14px", scrollbarWidth: "none" }}>
-              {loadingSaved ? (
-                <div style={{ display: "flex", justifyContent: "center", padding: "40px 0" }}>
-                  <Spinner size={28} />
-                </div>
-              ) : saved.length === 0 ? (
-                <div style={{ textAlign: "center", padding: "40px 16px" }}>
-                  <Icon name="FileText" size={32} color={C.border} />
-                  <p style={{ color: C.muted, fontSize: 13, margin: "12px 0 4px" }}>No saved resumes yet</p>
-                  <p style={{ color: C.faint, fontSize: 11, margin: "0 0 16px" }}>Generate one — it saves automatically</p>
-                  <Btn small variant="ghost" icon="Plus" onClick={() => setTab("new")}>Build one now</Btn>
-                </div>
-              ) : (
-                <>
-                  <p style={{ fontFamily: C.mono, fontSize: 9, color: C.faint,
-                    letterSpacing: "0.1em", margin: "0 0 12px" }}>
-                    {saved.length} SAVED RESUME{saved.length !== 1 ? "S" : ""}
-                  </p>
-                  {saved.map(r => (
-                    <motion.div key={r.id} layout
-                      style={{ background: C.surface, border: `1px solid ${C.border}`,
-                        borderRadius: 12, padding: "12px 13px", marginBottom: 8 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between",
-                        alignItems: "flex-start", gap: 8 }}>
-                        <div style={{ minWidth: 0 }}>
-                          <p style={{ color: C.text, fontSize: 13, fontWeight: 600,
-                            margin: "0 0 2px", overflow: "hidden",
-                            textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {r.name || "Unnamed"}
-                          </p>
-                          <p style={{ color: C.muted, fontSize: 11, margin: "0 0 8px",
-                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {r.role || ""}
-                          </p>
-                          {r.keywords?.length > 0 && (
-                            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
-                              {r.keywords.slice(0, 4).map(k => (
-                                <span key={k} style={{ fontSize: 10, padding: "2px 7px",
-                                  borderRadius: 20, background: C.blueBg,
-                                  border: `1px solid ${C.blueBr}`, color: C.blue,
-                                  fontFamily: C.mono }}>{k}</span>
-                              ))}
-                              {r.keywords.length > 4 && (
-                                <span style={{ fontSize: 10, color: C.faint,
-                                  fontFamily: C.mono, alignSelf: "center" }}>
-                                  +{r.keywords.length - 4}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                          <p style={{ fontFamily: C.mono, fontSize: 9, color: C.faint, margin: 0 }}>
-                            {r.generated_at
-                              ? new Date(r.generated_at).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })
-                              : ""}
-                          </p>
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 5, flexShrink: 0 }}>
-                          <Btn small icon="Eye" onClick={() => loadSaved(r.id)}>Load</Btn>
-                          <Btn small variant="danger" icon="Trash2"
-                            onClick={async () => { await apiDelete(r.id); setSaved(s => s.filter(x => x.id !== r.id)); }}>
-                          </Btn>
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))}
-                  <div style={{ paddingTop: 4 }}>
-                    <Btn variant="ghost" icon="Plus" onClick={() => setTab("new")}>New resume</Btn>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* ── RIGHT: LIVE PREVIEW ─────────────────────────────────────────────── */}
-        {!isMobile && (
-          <div ref={canvasRef} style={{ flex: 1, overflowY: "auto", background: "#C8C8C8",
-            display: "flex", flexDirection: "column", alignItems: "center",
-            padding: "24px 0 48px", scrollbarWidth: "thin" }}>
-
-            <div style={{ fontFamily: C.mono, fontSize: 9, color: "#666", marginBottom: 12,
-              letterSpacing: "0.08em", userSelect: "none" }}>
-              {Math.round(scale * 100)}% · Click any text to edit · {resume ? "Resume loaded" : "Generate to see preview"}
-            </div>
-
-            {/* A4 canvas */}
-            <div style={{ width: scaledW, height: scaledH, flexShrink: 0, position: "relative" }}>
-              <div style={{ width: SZ.A4w, height: SZ.A4h, position: "absolute", top: 0, left: 0,
-                transform: `scale(${scale})`, transformOrigin: "top left",
-                boxShadow: "0 6px 40px rgba(0,0,0,0.35)" }}>
-                <LivePreview
-                  ref={previewRef}
-                  resume={resume}
-                  docStyle={docStyle}
-                  onEdit={onEdit}
-                />
-              </div>
-            </div>
-          </div>
+            <PreviewCanvas />
+          </>
         )}
 
-        {/* Mobile: preview below wizard */}
-        {isMobile && resume && (
-          <div style={{ position: "fixed", bottom: "var(--taskbar-height,52px)", left: 0, right: 0,
-            background: C.panel, borderTop: `1px solid ${C.border}`, padding: "10px 14px",
-            display: "flex", gap: 8 }}>
-            <Btn small icon="FileDown" onClick={handleDocx} disabled={!!downloading}
-              loading={downloading === "docx"} variant="gold">Word</Btn>
-            <Btn small icon="FileDown" onClick={handlePdf} disabled={!!downloading}
-              loading={downloading === "pdf"} variant="ghost">PDF</Btn>
+        {/* Phone/tablet: one screen at a time, toggled above */}
+        {!isDesktop && (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {mobileView === "panel" ? <PanelContent /> : <PreviewCanvas />}
           </div>
         )}
       </div>
