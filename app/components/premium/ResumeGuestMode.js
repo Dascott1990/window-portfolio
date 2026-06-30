@@ -26,9 +26,20 @@ const ACCENTS = [
   { id: "black",  hex: "#1A1A1A", label: "Classic" },
   { id: "teal",   hex: "#0D5C6B", label: "Teal"    },
   { id: "forest", hex: "#1E4D2B", label: "Forest"  },
+  { id: "wine",   hex: "#6B1A3A", label: "Wine"    },
+  { id: "steel",  hex: "#2C4A6B", label: "Steel"   },
 ];
 
-const DEFAULT_STYLE = { accent: "navy", fontSize: 11, font: "Calibri" };
+const FONTS = [
+  { id: "calibri",   label: "Calibri",         css: "Calibri, 'Gill Sans', sans-serif" },
+  { id: "times",     label: "Times New Roman",  css: "'Times New Roman', Times, serif" },
+  { id: "arial",     label: "Arial",            css: "Arial, Helvetica, sans-serif" },
+  { id: "garamond",  label: "Garamond",         css: "Garamond, 'EB Garamond', Georgia, serif" },
+  { id: "georgia",   label: "Georgia",          css: "Georgia, 'Times New Roman', serif" },
+  { id: "helvetica", label: "Helvetica",        css: "Helvetica, Arial, sans-serif" },
+];
+
+const DEFAULT_STYLE = { accent: "navy", fontSize: 11, lineHeight: 1.4, font: "calibri" };
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 const C = {
@@ -239,7 +250,7 @@ function KwPill({ word }) {
 function buildDocx(resume, docStyle) {
   const { contact, sections } = resume;
   const accentHex = (ACCENTS.find(a => a.id === docStyle.accent)?.hex || "#1F3864").replace("#", "");
-  const fontName  = docStyle.font || "Calibri";
+  const fontName  = FONTS.find(f => f.id === docStyle.font)?.label || "Calibri";
   const sz        = Math.round((docStyle.fontSize || 11) * 2);
   const szSm      = sz - 2;
   const szLg      = sz + 8;
@@ -619,7 +630,8 @@ const LivePreview = React.forwardRef(function LivePreview(
 ) {
   const accentColor = ACCENTS.find(a => a.id === docStyle.accent)?.hex || "#1F3864";
   const fs          = docStyle.fontSize || 11;
-  const fontFamily  = `${docStyle.font || "Calibri"}, "Times New Roman", serif`;
+  const lh          = docStyle.lineHeight || 1.4;
+  const fontFamily  = FONTS.find(f => f.id === docStyle.font)?.css || FONTS[0].css;
 
   if (!resume?.contact || !resume?.sections) {
     return (
@@ -648,7 +660,7 @@ const LivePreview = React.forwardRef(function LivePreview(
   return (
     <div ref={ref} style={{ background: "white", padding: "20mm 18mm",
       width: "210mm", minHeight: "297mm", boxSizing: "border-box",
-      fontFamily, fontSize: `${fs}pt`, lineHeight: 1.45, color: "#1A1A1A" }}>
+      fontFamily, fontSize: `${fs}pt`, lineHeight: lh, color: "#1A1A1A" }}>
 
       {/* Header */}
       <div style={{ textAlign: "center", marginBottom: 12 }}>
@@ -677,7 +689,7 @@ const LivePreview = React.forwardRef(function LivePreview(
           <SectionHead label={sec.label} />
 
           {sec.type === "text" && (
-            <p style={{ fontFamily, fontSize: `${fs}pt`, lineHeight: 1.45,
+            <p style={{ fontFamily, fontSize: `${fs}pt`, lineHeight: lh,
               color: "#2C2C2C", margin: "3px 0 8px" }}>
               <EditableSpan value={sec.content || ""}
                 onChange={v => onEdit("section-text", si, v)} multiline />
@@ -688,7 +700,7 @@ const LivePreview = React.forwardRef(function LivePreview(
             <ul style={{ margin: "3px 0 6px", paddingLeft: 18 }}>
               {(sec.items || []).map((item, ii) => (
                 <li key={ii} style={{ fontFamily, fontSize: `${fs}pt`,
-                  lineHeight: 1.45, marginBottom: 2, color: "#2C2C2C" }}>
+                  lineHeight: lh, marginBottom: 2, color: "#2C2C2C" }}>
                   <EditableSpan value={item} onChange={v => onEdit("bullet", si, ii, v)} />
                 </li>
               ))}
@@ -714,7 +726,7 @@ const LivePreview = React.forwardRef(function LivePreview(
               <ul style={{ margin: "2px 0 2px", paddingLeft: 18 }}>
                 {(job.bullets || []).map((b, bi) => (
                   <li key={bi} style={{ fontFamily, fontSize: `${fs}pt`,
-                    lineHeight: 1.45, marginBottom: 2, color: "#2C2C2C" }}>
+                    lineHeight: lh, marginBottom: 2, color: "#2C2C2C" }}>
                     <EditableSpan value={b} onChange={v => onEdit("job-bullet", si, ji, bi, v)} />
                   </li>
                 ))}
@@ -1093,6 +1105,70 @@ export default function ResumeGuestMode({ onClose }) {
         </div>
       )}
 
+      {/* STYLE */}
+      {tab === "style" && (
+        <div style={{ flex: 1, overflowY: "auto", padding: 16, scrollbarWidth: "none" }}>
+          <p style={{ fontFamily: C.mono, fontSize: 10, color: C.faint,
+            letterSpacing: "0.07em", margin: "0 0 14px" }}>RESUME STYLE</p>
+
+          {/* Font family */}
+          <p style={{ fontFamily: C.mono, fontSize: 9.5, color: C.faint,
+            letterSpacing: "0.08em", margin: "0 0 7px" }}>FONT FAMILY</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 16 }}>
+            {FONTS.map(f => (
+              <button key={f.id} onClick={() => setDocStyle(s => ({ ...s, font: f.id }))}
+                style={{ padding: "9px 11px", borderRadius: 8, textAlign: "left", cursor: "pointer",
+                  background: docStyle.font === f.id ? C.goldBg : C.surface,
+                  border: `1px solid ${docStyle.font === f.id ? C.goldBr : C.border}`,
+                  color: docStyle.font === f.id ? C.gold : C.muted,
+                  fontSize: 13, fontFamily: f.css }}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Font size */}
+          <p style={{ fontFamily: C.mono, fontSize: 9.5, color: C.faint,
+            letterSpacing: "0.08em", margin: "0 0 7px" }}>FONT SIZE · {docStyle.fontSize}pt</p>
+          <input type="range" min={9} max={13} step={0.5} value={docStyle.fontSize}
+            onChange={e => setDocStyle(s => ({ ...s, fontSize: parseFloat(e.target.value) }))}
+            style={{ width: "100%", accentColor: C.gold, marginBottom: 4 }} />
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+            <span style={{ fontFamily: C.mono, fontSize: 9, color: C.faint }}>9pt</span>
+            <span style={{ fontFamily: C.mono, fontSize: 9, color: C.faint }}>13pt</span>
+          </div>
+
+          {/* Line spacing */}
+          <p style={{ fontFamily: C.mono, fontSize: 9.5, color: C.faint,
+            letterSpacing: "0.08em", margin: "0 0 7px" }}>LINE SPACING · {docStyle.lineHeight}×</p>
+          <input type="range" min={1.1} max={1.8} step={0.05} value={docStyle.lineHeight}
+            onChange={e => setDocStyle(s => ({ ...s, lineHeight: parseFloat(e.target.value) }))}
+            style={{ width: "100%", accentColor: C.gold, marginBottom: 16 }} />
+
+          {/* Accent color */}
+          <p style={{ fontFamily: C.mono, fontSize: 9.5, color: C.faint,
+            letterSpacing: "0.08em", margin: "0 0 7px" }}>ACCENT COLOR</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5, marginBottom: 16 }}>
+            {ACCENTS.map(a => (
+              <button key={a.id} onClick={() => setDocStyle(s => ({ ...s, accent: a.id }))}
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 9px",
+                  borderRadius: 8, cursor: "pointer",
+                  background: docStyle.accent === a.id ? C.goldBg : C.surface,
+                  border: `1px solid ${docStyle.accent === a.id ? C.goldBr : C.border}` }}>
+                <div style={{ width: 13, height: 13, borderRadius: 3, background: a.hex, flexShrink: 0 }} />
+                <span style={{ color: docStyle.accent === a.id ? C.gold : C.muted, fontSize: 11.5 }}>{a.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {!isDesktop && (
+            <Btn variant="primary" icon="Eye" onClick={() => setMobileView("preview")} small>
+              Preview changes
+            </Btn>
+          )}
+        </div>
+      )}
+
       {/* TEMPLATES */}
       {tab === "templates" && (
         <div style={{ flex: 1, overflowY: "auto", padding: 14, scrollbarWidth: "none" }}>
@@ -1189,11 +1265,12 @@ export default function ResumeGuestMode({ onClose }) {
         </div>
       </header>
 
-      {/* ── Single segmented nav row — Build / Saved (+ Preview on mobile) ── */}
+      {/* ── Single segmented nav row — Build / Style / Saved (+ Preview on mobile) ── */}
       <div role="tablist" aria-label="View" style={{ display: "flex", flexShrink: 0,
         background: C.surface, borderBottom: `1px solid ${C.border}`, padding: 5, gap: 5 }}>
         {[
-          { id: "new",       icon: "Sparkles", label: "Build" },
+          { id: "new",       icon: "Sparkles",  label: "Build" },
+          { id: "style",     icon: "Settings2", label: "Style" },
           ...(!isDesktop ? [{ id: "preview", icon: "Eye", label: "Preview" }] : []),
           { id: "templates", icon: "Layout",   label: "Saved" },
         ].map(v => {
