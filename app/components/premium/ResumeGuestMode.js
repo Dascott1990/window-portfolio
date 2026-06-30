@@ -828,6 +828,7 @@ const EMPTY_INFO = {
 };
 
 export default function ResumeGuestMode({ onClose }) {
+  console.log('✅ RESUME GUEST MODE v2.0.0 - LOADED');
   const { isPhone, isTablet, isDesktop } = useViewport();
   const showSidebarAndPreview = isDesktop; // side-by-side only on desktop
 
