@@ -26,7 +26,7 @@ export const eventsAPI = {
   update:      (id, data)    => request(`/api/v1/events/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   remove:      (id)          => request(`/api/v1/events/${id}`, { method: "DELETE" }),
 };
-// ── Add this block to app/lib/api.js ──────────────────────────────────────────
+
 export const resumeAPI = {
   generate: (userInfo, jobDescription) =>
     request("/api/v1/resume/generate", {
@@ -37,6 +37,7 @@ export const resumeAPI = {
   get:    (id) => request(`/api/v1/resume/${id}`),
   remove: (id) => request(`/api/v1/resume/${id}`, { method: "DELETE" }),
 };
+
 export const cameraAPI = {
   savePhoto: ({ dataUrl, mode, caption, filterName, overlayData }) =>
     request("/api/v1/camera/photo", {
@@ -81,9 +82,23 @@ export const projectsAPI = {
   remove: (id)               => request(`/api/v1/projects/${id}`, { method: "DELETE" }),
 };
 
+// ── Health ────────────────────────────────────────────────────────────────────
 export const healthAPI = {
-  list:   () => request("/api/v1/health"),
-  create: (data) => request("/api/v1/health", { method: "POST", body: JSON.stringify(data) }),
+  list: ({ type, start, end, page = 1, perPage = 30 } = {}) => {
+    const qs = new URLSearchParams();
+    if (type)  qs.set("type", type);
+    if (start) qs.set("start", start);
+    if (end)   qs.set("end", end);
+    qs.set("page", page);
+    qs.set("per_page", perPage);
+    return request(`/api/v1/health?${qs.toString()}`);
+  },
+  summary: ()         => request("/api/v1/health/summary"),
+  types:   ()         => request("/api/v1/health/types"),
+  get:     (id)       => request(`/api/v1/health/${id}`),
+  create:  (data)     => request("/api/v1/health", { method: "POST", body: JSON.stringify(data) }),
+  update:  (id, data) => request(`/api/v1/health/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  remove:  (id)       => request(`/api/v1/health/${id}`, { method: "DELETE" }),
 };
 
 export const ping = () => request("/health");
