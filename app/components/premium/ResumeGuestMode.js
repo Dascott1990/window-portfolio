@@ -1225,16 +1225,16 @@ export default function ResumeGuestMode({ onClose }) {
           <>
             <div style={{ width: 340, flexShrink: 0, display: "flex", flexDirection: "column",
               background: C.panel, borderRight: `1px solid ${C.border}` }}>
-              <PanelContent />
+              {PanelContent()}
             </div>
-            <PreviewCanvas />
+            {PreviewCanvas()}
           </>
         )}
 
         {/* Phone/tablet: one screen at a time, toggled above */}
         {!isDesktop && (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            {mobileView === "panel" ? <PanelContent /> : <PreviewCanvas />}
+            {mobileView === "panel" ? PanelContent() : PreviewCanvas()}
           </div>
         )}
       </div>
