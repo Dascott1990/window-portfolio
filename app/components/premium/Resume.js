@@ -25,26 +25,19 @@ const Ic = ({ d, size = 18, sw = 1.6, color = "currentColor", fill = "none" }) =
   </svg>
 );
 
+// Every icon here is chosen to literally depict the action it triggers —
+// no filler glyphs standing in for unrelated buttons.
 const ICONS = {
-  download: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3",
-  edit:     "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5Z",
-  check:    "M20 6 9 17l-5-5",
-  close:    "M18 6 6 18M6 6l12 12",
-  eye:      ["M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z", "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"],
-  settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0 0v3m0-12V3m9 9h-3M3 12H0m15.36 6.36-2.12-2.12M8.76 8.76 6.64 6.64m12.72 0-2.12 2.12M8.76 15.24l-2.12 2.12",
-  doc:      ["M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z", "M14 2v6h6", "M16 13H8", "M16 17H8", "M10 9H8"],
-  pdf:      ["M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z", "M14 2v6h6"],
-  up:       "M18 15l-6-6-6 6",
-  down:     "M6 9l6 6 6-6",
-  plus:     "M12 5v14M5 12h14",
-  trash:    ["M3 6h18", "M8 6V4h8v2", "M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"],
-  palette:  "M12 2a10 10 0 0 0 0 20c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.4-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.4c3.1 0 5.6-2.5 5.6-5.6C23 6.5 18 2 12 2z",
-  user:     ["M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2", "M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"],
-  sparkle:  "M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3zM5 17l.75 2.25L8 20l-2.25.75L5 23l-.75-2.25L2 20l2.25-.75L5 17zM19 3l.75 2.25L22 6l-2.25.75L19 9l-.75-2.25L16 6l2.25-.75L19 3z",
-  arrow:    "M5 12h14M12 5l7 7-7 7",
-  back:     "M19 12H5M12 19l-7-7 7-7",
-  copy:     ["M8 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-2", "M16 4h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2V8z"],
-  location: ["M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z", "M12 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"],
+  download: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3",   // arrow into tray — "save this file"
+  check:    "M20 6 9 17l-5-5",                                                  // confirms the active/selected item
+  close:    "M18 6 6 18M6 6l12 12",                                             // X — closes the studio
+  doc:      ["M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z", "M14 2v6h6", "M16 13H8", "M16 17H8", "M10 9H8"], // a resume document
+  layers:   ["M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z",
+             "M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12",
+             "M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"], // stacked pages — multiple resume templates
+  palette:  "M12 2a10 10 0 0 0 0 20c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.4-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.4c3.1 0 5.6-2.5 5.6-5.6C23 6.5 18 2 12 2z", // paint palette — style/appearance
+  sparkle:  "M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3zM5 17l.75 2.25L8 20l-2.25.75L5 23l-.75-2.25L2 20l2.25-.75L5 17zM19 3l.75 2.25L22 6l-2.25.75L19 9l-.75-2.25L16 6l2.25-.75L19 3z", // AI-generated content
+  panel:    ["M3 4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", "M9 3v18"], // a window with a side rail — toggles the sidebar
 };
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
@@ -672,15 +665,16 @@ const Resume = ({ onClose }) => {
   // ── Sidebar for "My Resumes" mode ──────────────────────────────────────────
   const SidebarContent = () => (
     <>
-      <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
-        {[{ id: "resumes", icon: ICONS.doc, label: "Templates" }, { id: "style", icon: ICONS.palette, label: "Style" }].map(t => (
-          <button key={t.id} onClick={() => setPanel(t.id)}
-            style={{ flex: 1, padding: "11px 6px", display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
-              background: "none", border: "none", cursor: "pointer",
-              borderBottom: panel === t.id ? `2px solid ${T.gold}` : "2px solid transparent",
-              color: panel === t.id ? T.gold : T.sub, fontSize: 10, fontWeight: 700, fontFamily: T.mono }}>
-            <Ic d={t.icon} size={12} color={panel === t.id ? T.gold : T.sub} />
-            {t.label.toUpperCase()}
+      <div role="tablist" aria-label="Panel" style={{ display: "flex", padding: 6, gap: 5, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+        {[{ id: "resumes", icon: ICONS.layers, label: "Templates" }, { id: "style", icon: ICONS.palette, label: "Style" }].map(t => (
+          <button key={t.id} role="tab" aria-selected={panel === t.id} onClick={() => setPanel(t.id)}
+            style={{ flex: 1, minHeight: 34, padding: "8px 6px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              borderRadius: 7, border: "none", cursor: "pointer",
+              background: panel === t.id ? T.blue : "transparent",
+              color: panel === t.id ? "#fff" : T.sub, fontSize: 11, fontWeight: 700, fontFamily: T.sans,
+              transition: "background 0.15s, color 0.15s" }}>
+            <Ic d={t.icon} size={13} color={panel === t.id ? "#fff" : T.sub} />
+            {t.label}
           </button>
         ))}
       </div>
@@ -688,16 +682,29 @@ const Resume = ({ onClose }) => {
         {panel === "resumes" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
             <Label>SELECT RESUME</Label>
-            {Object.entries(RESUMES).map(([key, r]) => (
-              <motion.button key={key} whileTap={{ scale: 0.97 }} onClick={() => switchResume(key)}
-                style={{ padding: "10px 11px", borderRadius: 11, textAlign: "left",
-                  background: activeResume === key ? T.goldBg : T.surface,
-                  border: `1px solid ${activeResume === key ? T.goldBr : T.border}`,
-                  cursor: "pointer", width: "100%" }}>
-                <p style={{ color: activeResume === key ? T.gold : T.text, fontSize: 12, fontWeight: 600, margin: 0 }}>{r.label}</p>
-                <p style={{ color: T.sub, fontSize: 10, margin: "2px 0 0", fontFamily: T.mono, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.title}</p>
-              </motion.button>
-            ))}
+            {Object.entries(RESUMES).map(([key, r]) => {
+              const active = activeResume === key;
+              return (
+                <motion.button key={key} whileTap={{ scale: 0.97 }} onClick={() => switchResume(key)}
+                  aria-pressed={active}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                    padding: "10px 11px", minHeight: 44, borderRadius: 11, textAlign: "left",
+                    background: active ? T.goldBg : T.surface,
+                    border: `1px solid ${active ? T.goldBr : T.border}`,
+                    cursor: "pointer", width: "100%", boxSizing: "border-box" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <p style={{ color: active ? T.gold : T.text, fontSize: 12, fontWeight: 600, margin: 0 }}>{r.label}</p>
+                    <p style={{ color: T.sub, fontSize: 10, margin: "2px 0 0", fontFamily: T.mono, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.title}</p>
+                  </div>
+                  {active && (
+                    <span style={{ width: 18, height: 18, borderRadius: "50%", background: T.gold,
+                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <Ic d={ICONS.check} size={11} sw={2.4} color={T.panel} />
+                    </span>
+                  )}
+                </motion.button>
+              );
+            })}
             <div style={{ marginTop: 8, padding: "9px 11px", borderRadius: 11, background: T.surface, border: `1px solid ${T.border}` }}>
               <p style={{ fontFamily: T.mono, fontSize: 9, color: T.faint, margin: "0 0 4px", letterSpacing: "0.08em" }}>TIP</p>
               <p style={{ color: T.sub, fontSize: 11, lineHeight: 1.5, margin: 0 }}>Click any text in the preview to edit it inline.</p>
@@ -711,7 +718,8 @@ const Resume = ({ onClose }) => {
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 {FONTS.map(f => (
                   <button key={f.id} onClick={() => setStyle(s => ({ ...s, font: f.id }))}
-                    style={{ padding: "7px 10px", borderRadius: 8, textAlign: "left",
+                    aria-pressed={style.font === f.id}
+                    style={{ padding: "9px 11px", minHeight: 40, borderRadius: 8, textAlign: "left",
                       background: style.font === f.id ? T.goldBg : T.surface,
                       border: `1px solid ${style.font === f.id ? T.goldBr : T.border}`,
                       color: style.font === f.id ? T.gold : T.sub, fontSize: 12, fontFamily: f.css, cursor: "pointer" }}>
@@ -741,7 +749,8 @@ const Resume = ({ onClose }) => {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
                 {ACCENTS.map(a => (
                   <button key={a.id} onClick={() => setStyle(s => ({ ...s, accent: a.id }))}
-                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 8px", borderRadius: 8,
+                    aria-pressed={style.accent === a.id}
+                    style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 9px", minHeight: 38, borderRadius: 8,
                       background: style.accent === a.id ? T.goldBg : T.surface,
                       border: `1px solid ${style.accent === a.id ? T.goldBr : T.border}`, cursor: "pointer" }}>
                     <div style={{ width: 13, height: 13, borderRadius: 3, background: a.hex, flexShrink: 0 }} />
@@ -777,25 +786,26 @@ const Resume = ({ onClose }) => {
           {/* Sidebar toggle — only for "mine" mode */}
           {mode === "mine" && (
             <motion.button whileTap={{ scale: 0.9 }} onClick={() => setSidebarOpen(v => !v)}
+              aria-label={sidebarOpen ? "Hide panel" : "Show panel"} title={sidebarOpen ? "Hide panel" : "Show panel"}
               style={{ width: 32, height: 32, borderRadius: 9, background: sidebarOpen ? T.goldBg : T.raised,
                 border: `1px solid ${sidebarOpen ? T.goldBr : T.border}`,
                 display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
-              <Ic d={ICONS.settings} size={14} color={sidebarOpen ? T.gold : T.sub} />
+              <Ic d={ICONS.panel} size={14} color={sidebarOpen ? T.gold : T.sub} />
             </motion.button>
           )}
           <Ic d={ICONS.doc} size={15} color={T.gold} />
           <span style={{ fontSize: 13, fontWeight: 700, color: T.text, flexShrink: 0 }}>Resume Studio</span>
 
           {/* Mode switcher */}
-          <div style={{ display: "flex", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 9, padding: 2, gap: 2, marginLeft: 6 }}>
+          <div role="tablist" aria-label="Resume mode" style={{ display: "flex", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 9, padding: 3, gap: 3, marginLeft: 6 }}>
             {[{ id: "mine", label: "My Resumes", icon: ICONS.doc }, { id: "guest", label: "Guest Mode", icon: ICONS.sparkle }].map(m => (
-              <button key={m.id} onClick={() => setMode(m.id)}
-                style={{ padding: "5px 10px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600,
-                  display: "flex", alignItems: "center", gap: 5,
-                  background: mode === m.id ? T.raised : "transparent",
-                  color: mode === m.id ? T.text : T.sub,
-                  transition: "all 0.15s" }}>
-                <Ic d={m.icon} size={11} color={mode === m.id ? T.gold : T.sub} />
+              <button key={m.id} role="tab" aria-selected={mode === m.id} onClick={() => setMode(m.id)}
+                style={{ padding: isMobile ? "7px 9px" : "6px 12px", minHeight: 30, borderRadius: 7, border: "none", cursor: "pointer", fontSize: 11.5, fontWeight: 700, fontFamily: T.sans,
+                  display: "flex", alignItems: "center", gap: 6,
+                  background: mode === m.id ? T.blue : "transparent",
+                  color: mode === m.id ? "#fff" : T.sub,
+                  transition: "background 0.15s, color 0.15s" }}>
+                <Ic d={m.icon} size={12} color={mode === m.id ? "#fff" : T.sub} />
                 {!isMobile && m.label}
               </button>
             ))}
@@ -804,19 +814,25 @@ const Resume = ({ onClose }) => {
 
         {/* Download buttons — shown in both modes once resume exists */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-          <motion.button whileTap={{ scale: 0.94 }} onClick={handleDownloadDocx} disabled={!!downloading}
-            style={{ display: "flex", alignItems: "center", gap: 5, padding: isMobile ? "7px 10px" : "8px 13px",
+          <motion.button whileTap={!downloading ? { scale: 0.94 } : undefined} onClick={handleDownloadDocx} disabled={!!downloading}
+            aria-label="Download as Word document" title="Download as Word (.docx)"
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: isMobile ? "8px 10px" : "9px 14px", minHeight: 36,
               borderRadius: 10, background: T.goldBg, border: `1px solid ${T.goldBr}`,
-              color: T.gold, fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-            {downloading === "docx" ? "…" : <><Ic d={ICONS.doc} size={12} color={T.gold} />{!isMobile && " Word"}</>}
+              color: T.gold, fontSize: 11.5, fontWeight: 700, fontFamily: T.sans, cursor: downloading ? "not-allowed" : "pointer",
+              opacity: downloading && downloading !== "docx" ? 0.45 : 1, whiteSpace: "nowrap" }}>
+            <Ic d={ICONS.download} size={13} color={T.gold} />
+            {!isMobile && (downloading === "docx" ? "Preparing…" : "Word")}
           </motion.button>
-          <motion.button whileTap={{ scale: 0.94 }} onClick={handleDownloadPdf} disabled={!!downloading}
-            style={{ display: "flex", alignItems: "center", gap: 5, padding: isMobile ? "7px 10px" : "8px 13px",
+          <motion.button whileTap={!downloading ? { scale: 0.94 } : undefined} onClick={handleDownloadPdf} disabled={!!downloading}
+            aria-label="Download as PDF" title="Download as PDF"
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: isMobile ? "8px 10px" : "9px 14px", minHeight: 36,
               borderRadius: 10, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.22)",
-              color: "#E84545", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-            <Ic d={ICONS.pdf} size={12} color="#E84545" />{!isMobile && " PDF"}
+              color: "#E84545", fontSize: 11.5, fontWeight: 700, fontFamily: T.sans, cursor: downloading ? "not-allowed" : "pointer",
+              opacity: downloading && downloading !== "pdf" ? 0.45 : 1, whiteSpace: "nowrap" }}>
+            <Ic d={ICONS.download} size={13} color="#E84545" />
+            {!isMobile && (downloading === "pdf" ? "Preparing…" : "PDF")}
           </motion.button>
-          <motion.button whileTap={{ scale: 0.88 }} onClick={onClose}
+          <motion.button whileTap={{ scale: 0.88 }} onClick={onClose} aria-label="Close Resume Studio" title="Close"
             style={{ width: 32, height: 32, borderRadius: "50%", background: T.raised, border: `1px solid ${T.border}`,
               display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
             <Ic d={ICONS.close} size={14} color={T.sub} />
