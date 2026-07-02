@@ -40,21 +40,23 @@ async function apiFetch(path, opts = {}) {
   return json.data ?? json;
 }
 
-// ── Design tokens — shared language with Health.js / Resume Studio ──────────────
+// ── Design tokens — same palette as Health.js / Resume Studio ──────────────────
+// One accent color (blue) for interactivity, one (violet) reserved solely for
+// the AI analyst's identity, red/green only ever mean price direction.
+// Nothing else gets its own color — that's what keeps Health.js calm.
 const C = {
   bg:      "#080B10",
   panel:   "#0D1017",
   surface: "#111520",
   raised:  "#161C28",
-  border:  "rgba(255,255,255,0.09)",
+  border:  "rgba(255,255,255,0.07)",
   text:    "#E8E4DC",
-  muted:   "#93A0B0",
-  faint:   "rgba(147,160,176,0.55)",
+  muted:   "#7A8899",
+  faint:   "rgba(122,136,153,0.4)",
   yellow:  "#F5C542", yBg: "rgba(245,197,66,0.1)",  yBr: "rgba(245,197,66,0.25)",
   red:     "#EF4444", rBg: "rgba(239,68,68,0.1)",   rBr: "rgba(239,68,68,0.25)",
   green:   "#22C55E", gBg: "rgba(34,197,94,0.08)",  gBr: "rgba(34,197,94,0.2)",
   blue:    "#3B82F6", bBg: "rgba(59,130,246,0.1)",  bBr: "rgba(59,130,246,0.22)",
-  orange:  "#F5934C", oBg: "rgba(245,147,76,0.1)",  oBr: "rgba(245,147,76,0.22)",
   violet:  "#8B7CF6", vBg: "rgba(139,124,246,0.12)",vBr: "rgba(139,124,246,0.25)",
   sans:    "-apple-system,'SF Pro Display',Inter,system-ui,sans-serif",
   mono:    "'SF Mono','JetBrains Mono',monospace",
@@ -104,9 +106,11 @@ function Btn({ children, onClick, disabled, variant = "ghost", small, active, ar
     ghost:   { bg: active ? C.raised : "transparent", br: active ? C.border : "transparent", fg: active ? C.text : C.muted },
     danger:  { bg: C.rBg, br: C.rBr, fg: C.red },
   }[variant] || {};
+  // No whileTap here — a plain :active press via CSS transition is enough for
+  // a toggle chip. whileTap is reserved for actions that actually do something
+  // (send, refresh), same as Health.js's Btn.
   return (
-    <motion.button whileTap={!disabled ? { scale: 0.94 } : undefined}
-      onClick={disabled ? undefined : onClick} disabled={disabled}
+    <button onClick={disabled ? undefined : onClick} disabled={disabled}
       aria-label={ariaLabel} aria-pressed={ariaPressed} title={title}
       style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
         padding: small ? "7px 11px" : "9px 14px", minHeight: small ? 34 : 40,
@@ -116,7 +120,7 @@ function Btn({ children, onClick, disabled, variant = "ghost", small, active, ar
         transition: "background 0.12s, color 0.12s", whiteSpace: "nowrap" }}
       className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">
       {children}
-    </motion.button>
+    </button>
   );
 }
 
@@ -133,12 +137,9 @@ const ASSETS = [
   { id: "XAUUSD",   symbol: "XAU/USD", label: "Gold",     cat: "commodity", source: "yahoo", yahooTicker: "GC=F" },
 ];
 
-const CAT_STYLE = {
-  crypto:    { fg: C.orange, bg: C.oBg, br: C.oBr },
-  stock:     { fg: C.blue,   bg: C.bBg, br: C.bBr },
-  forex:     { fg: C.violet, bg: C.vBg, br: C.vBr },
-  commodity: { fg: C.yellow, bg: C.yBg, br: C.yBr },
-};
+// Categories used to each get their own accent color + a colored left border
+// on every row — four extra hues fighting the red/green that actually matters
+// (price direction). Rows are neutral now; category is just a muted text tag.
 
 // ── Direct (fallback-only) fetchers ───────────────────────────────────────────
 // These only run if our backend's /api/v1/markets route isn't available.
@@ -263,23 +264,6 @@ async function fetchOneQuote(asset) {
   return fetchOneDirect(asset);
 }
 
-// ── Sparkline ────────────────────────────────────────────────────────────────
-function Sparkline({ change, color }) {
-  const pts    = 7;
-  const rand   = (n) => (Math.random() - 0.5) * n;
-  const points = Array.from({ length: pts }, (_, i) => {
-    const base = 50 + (change ?? 0) * (i / (pts - 1)) * 1.5 + rand(8);
-    return Math.max(5, Math.min(95, base));
-  });
-  const w = 56, h = 26, xStep = w / (pts - 1);
-  const d = points.map((y, i) => `${i === 0 ? "M" : "L"} ${i * xStep} ${h - (y / 100) * h}`).join(" ");
-  return (
-    <svg width={w} height={h} style={{ overflow: "visible", opacity: 0.7 }} aria-hidden="true">
-      <path d={d} fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 // ── Formatting helpers ────────────────────────────────────────────────────────
 const fmtPrice = (n) => {
   if (n == null) return "—";
@@ -300,7 +284,6 @@ const fmtAge = (ms) => {
 // accessible name a screen reader announces at once, mirroring the pattern used
 // throughout Resume Studio's guest flow.
 function AssetRow({ asset, data, loading, failing, retrying, now, selected, onClick, onRetry }) {
-  const style   = CAT_STYLE[asset.cat];
   const up      = data?.change >= 0;
   const hasData = data && data.price != null;
   const isStale = hasData && failing;
@@ -315,8 +298,8 @@ function AssetRow({ asset, data, loading, failing, retrying, now, selected, onCl
       : `${asset.label}, ${asset.symbol}. $${fmtPrice(data?.price)}. ${changeText}.${isStale ? ` Last confirmed ${fmtAge(now - data.updatedAt)}; currently unable to refresh.` : ""}`;
 
   return (
-    <motion.button
-      type="button" layout initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+    <button
+      type="button"
       onClick={showDead ? onRetry : onClick}
       aria-pressed={!showDead && selected}
       aria-label={label}
@@ -327,15 +310,10 @@ function AssetRow({ asset, data, loading, failing, retrying, now, selected, onCl
         padding: "11px 13px", borderRadius: 10, cursor: "pointer",
         background: selected && !showDead ? C.raised : C.surface,
         border: `1px solid ${selected && !showDead ? C.border : "rgba(255,255,255,0.06)"}`,
-        borderLeft: `3px solid ${style.fg}66`,
       }}>
       <div style={{ width: 96, flexShrink: 0 }} aria-hidden="true">
         <div style={{ color: C.text, fontWeight: 700, fontSize: 13.5, lineHeight: 1, fontFamily: C.mono }}>{asset.symbol}</div>
         <div style={{ color: C.muted, fontSize: 11, marginTop: 3 }}>{asset.label}</div>
-      </div>
-
-      <div className="hidden sm:flex" style={{ flexShrink: 0 }} aria-hidden="true">
-        {hasData ? <Sparkline change={data.change} color={up ? C.green : C.red} /> : <div style={{ width: 56, height: 26 }} />}
       </div>
 
       <div style={{ flex: 1, textAlign: "right" }} aria-hidden="true">
@@ -365,7 +343,7 @@ function AssetRow({ asset, data, loading, failing, retrying, now, selected, onCl
           </span>
         )}
       </div>
-    </motion.button>
+    </button>
   );
 }
 
@@ -504,21 +482,14 @@ Your role: Provide sharp, concise, actionable market analysis. Be direct — no 
   return (
     <motion.div
       initial={{ height: 0, opacity: 0 }} animate={{ height: 380, opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-      transition={{ type: "spring", damping: 26, stiffness: 280 }}
       style={{ overflow: "hidden", borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column" }}
       role="region" aria-label="AI market analyst chat">
       <div style={{ padding: "10px 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ width: 24, height: 24, borderRadius: "50%", background: `linear-gradient(135deg, ${C.violet}, #38bdf8)`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Ic d={PATHS.Sparkle} size={12} color="#fff" />
+          <div style={{ width: 24, height: 24, borderRadius: "50%", background: C.vBg, border: `1px solid ${C.vBr}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Ic d={PATHS.Sparkle} size={12} color={C.violet} />
           </div>
           <span style={{ fontSize: 11, fontWeight: 700, color: C.violet, letterSpacing: "0.1em" }}>AI MARKET ANALYST</span>
-          {streaming && (
-            <motion.div animate={{ opacity: [0.4,1,0.4] }} transition={{ duration: 1, repeat: Infinity }}
-              style={{ fontSize: 9, color: C.violet, background: C.vBg, padding: "2px 8px", borderRadius: 8, border: `1px solid ${C.vBr}` }}>
-              ● STREAMING
-            </motion.div>
-          )}
         </div>
         {messages.length > 0 && (
           <button onClick={() => setMessages([])} aria-label="Clear conversation"
@@ -536,13 +507,13 @@ Your role: Provide sharp, concise, actionable market analysis. Be direct — no 
             </p>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {QUICK_PROMPTS.map(p => (
-                <motion.button key={p} whileTap={{ scale: 0.98 }} onClick={() => send(p)}
+                <button key={p} onClick={() => send(p)}
                   className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
-                  style={{ textAlign: "left", padding: "8px 12px", borderRadius: 10, background: C.vBg,
-                    border: `1px solid ${C.vBr}`, color: C.text, opacity: 0.85,
+                  style={{ textAlign: "left", padding: "8px 12px", borderRadius: 10, background: C.surface,
+                    border: `1px solid ${C.border}`, color: C.text, opacity: 0.85,
                     fontSize: 11.5, cursor: "pointer", lineHeight: 1.4 }}>
                   {p}
-                </motion.button>
+                </button>
               ))}
             </div>
           </div>
@@ -551,8 +522,8 @@ Your role: Provide sharp, concise, actionable market analysis. Be direct — no 
             {messages.map((m, i) => (
               <div key={m.id} style={{ display: "flex", flexDirection: m.role === "user" ? "row-reverse" : "row", gap: 8, alignItems: "flex-start" }}>
                 {m.role === "assistant" && (
-                  <div style={{ width: 22, height: 22, borderRadius: "50%", flexShrink: 0, background: `linear-gradient(135deg, ${C.violet}, #38bdf8)`, display: "flex", alignItems: "center", justifyContent: "center", marginTop: 2 }}>
-                    <Ic d={PATHS.Sparkle} size={10} color="#fff" />
+                  <div style={{ width: 22, height: 22, borderRadius: "50%", flexShrink: 0, background: C.vBg, border: `1px solid ${C.vBr}`, display: "flex", alignItems: "center", justifyContent: "center", marginTop: 2 }}>
+                    <Ic d={PATHS.Sparkle} size={10} color={C.violet} />
                   </div>
                 )}
                 <div style={{ maxWidth: "85%", padding: "9px 12px", borderRadius: m.role === "user" ? "14px 4px 14px 14px" : "4px 14px 14px 14px",
@@ -561,16 +532,8 @@ Your role: Provide sharp, concise, actionable market analysis. Be direct — no 
                   {m.role === "user"
                     ? <p style={{ color: C.text, opacity: 0.92, fontSize: 12, margin: 0 }}>{m.content}</p>
                     : m.content === "" && i === messages.length - 1 && streaming
-                      ? <div style={{ display: "flex", gap: 4, alignItems: "center", padding: "4px 0" }}>
-                          {[0,1,2].map(j => (
-                            <motion.div key={j} animate={{ y: [0,-4,0] }} transition={{ duration: 0.7, repeat: Infinity, delay: j*0.15 }}
-                              style={{ width: 5, height: 5, borderRadius: "50%", background: C.violet }} />
-                          ))}
-                        </div>
-                      : <div>{renderMd(m.content)}{i === messages.length - 1 && streaming && (
-                          <motion.span animate={{ opacity: [1,0,1] }} transition={{ duration: 0.8, repeat: Infinity }}
-                            style={{ display: "inline-block", width: 6, height: 12, background: C.violet, borderRadius: 1, verticalAlign: "text-bottom", marginLeft: 2 }} />
-                        )}</div>
+                      ? <Spinner size={12} color={C.violet} />
+                      : <div>{renderMd(m.content)}</div>
                   }
                 </div>
               </div>
@@ -687,8 +650,7 @@ export default function AssetNews({ onClose }) {
       <style>{`.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}`}</style>
 
       <motion.div
-        initial={{ scale: 0.96, y: 16 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.96, y: 16 }}
-        transition={{ type: "spring", damping: 24, stiffness: 300 }}
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         className="w-full max-w-lg"
         style={{ maxHeight: "100%", display: "flex", flexDirection: "column", overflow: "hidden",
           borderRadius: 16, background: C.bg, border: `1px solid ${C.border}`, boxShadow: "0 40px 80px rgba(0,0,0,0.7)", fontFamily: C.sans }}>
@@ -701,9 +663,6 @@ export default function AssetNews({ onClose }) {
             <div style={{ minWidth: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>Markets</span>
-                <span style={{ fontSize: 10, fontFamily: C.mono, color: C.muted, background: C.raised, border: `1px solid ${C.border}`, padding: "2px 7px", borderRadius: 5, flexShrink: 0 }}>
-                  Live Terminal
-                </span>
               </div>
               <div role="status" aria-live="polite" style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
                 <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: "50%", background: online ? C.green : C.red, flexShrink: 0 }} />
