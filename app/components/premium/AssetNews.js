@@ -69,6 +69,9 @@ const PATHS = {
   Sparkle:  "M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3zM5 17l.75 2.25L8 20l-2.25.75L5 23l-.75-2.25L2 20l2.25-.75L5 17zM19 3l.75 2.25L22 6l-2.25.75L19 9l-.75-2.25L16 6l2.25-.75L19 3z",
   Chart:    ["M3 3v18h18", "M18 17V9", "M13 17V5", "M8 17v-3"],
   Send:     "M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z",
+  ChevronLeft: "M15 18l-6-6 6-6",
+  ChevronUp:   "M18 15l-6-6-6 6",
+  ChevronDown: "M6 9l6 6 6-6",
 };
 
 function Ic({ d, size = 16, color = "currentColor", sw = 1.8 }) {
@@ -347,6 +350,81 @@ function AssetRow({ asset, data, loading, failing, retrying, now, selected, onCl
   );
 }
 
+// ── Asset detail ─────────────────────────────────────────────────────────────
+// Tapping a row used to just quietly select it for AI context — no actual page
+// to land on. This is that page: a real drill-down with what we actually have
+// (price, change, freshness, source), plus a clear way back and a way to jump
+// into the AI panel already scoped to this asset. No fake chart — we don't have
+// real history from the backend, and a fabricated one caused problems before.
+function AssetDetail({ asset, data, now, failing, retrying, onRetry, onAskAI }) {
+  const up      = data?.change >= 0;
+  const hasData = data && data.price != null;
+  const isStale = hasData && failing;
+  const isDead  = !hasData && !retrying;
+  const sourceLabel = { coingecko: "CoinGecko", yahoo: "Yahoo Finance", frankfurter: "Frankfurter" }[asset.source] ?? asset.source;
+  const catLabel     = { crypto: "Crypto", stock: "Stock", forex: "FX", commodity: "Commodity" }[asset.cat] ?? asset.cat;
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      style={{ padding: "18px 16px", display: "flex", flexDirection: "column", gap: 18 }}>
+
+      <div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontFamily: C.mono, fontWeight: 700, fontSize: 20, color: C.text }}>{asset.symbol}</span>
+          <span style={{ fontSize: 13, color: C.muted }}>{asset.label}</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: C.muted, background: C.raised, border: `1px solid ${C.border}`, padding: "2px 8px", borderRadius: 6 }}>
+            {catLabel}
+          </span>
+        </div>
+
+        <div style={{ marginTop: 14, display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap" }}>
+          {retrying && !hasData ? (
+            <Spinner size={20} color={C.faint} />
+          ) : isDead ? (
+            <span style={{ color: C.red, fontSize: 15, fontWeight: 700 }}>Price unavailable</span>
+          ) : (
+            <>
+              <span style={{ fontFamily: C.mono, fontWeight: 700, fontSize: 32, lineHeight: 1, color: isStale ? C.faint : C.text }}>
+                ${fmtPrice(data?.price)}
+              </span>
+              {data?.change != null && (
+                <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: C.mono, fontWeight: 700, fontSize: 14,
+                  color: up ? C.green : C.red, opacity: isStale ? 0.6 : 1, paddingBottom: 4 }}>
+                  <Triangle up={up} color={up ? C.green : C.red} size={8} />
+                  {Math.abs(data.change).toFixed(2)}% today
+                </span>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {isDead ? (
+        <Btn variant="primary" onClick={onRetry}>
+          <Ic d={PATHS.Refresh} size={14} color="#fff" /> Retry
+        </Btn>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 1, borderRadius: 10, overflow: "hidden", border: `1px solid ${C.border}` }}>
+          {[
+            ["Data source", sourceLabel],
+            ["Last updated", data?.updatedAt ? fmtAge(now - data.updatedAt) : "—"],
+            ["Status", isStale ? "Stale — last known price shown" : "Live"],
+          ].map(([k, v]) => (
+            <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "10px 12px", background: C.surface }}>
+              <span style={{ fontSize: 12, color: C.muted }}>{k}</span>
+              <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>{v}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Btn variant="ghost" onClick={onAskAI} ariaLabel={`Ask the AI analyst about ${asset.label}`}>
+        <Ic d={PATHS.Sparkle} size={14} color={C.violet} /> Ask AI about {asset.symbol}
+      </Btn>
+    </motion.div>
+  );
+}
+
 // ── Inline markdown renderer (AI panel) ───────────────────────────────────────
 function renderMd(text) {
   if (!text) return null;
@@ -393,7 +471,7 @@ const QUICK_PROMPTS = [
   "Give me a risk assessment of my watchlist",
 ];
 
-function AIPanel({ prices, selectedAsset }) {
+function AIPanel({ prices, selectedAsset, collapsed, onToggleCollapsed }) {
   const [messages,  setMessages]  = useState([]);
   const [input,     setInput]     = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -401,7 +479,7 @@ function AIPanel({ prices, selectedAsset }) {
   const bottomRef = useRef(null);
   const inputRef  = useRef(null);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  useEffect(() => { if (!collapsed) bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, collapsed]);
 
   const buildSystem = useCallback(() => {
     const priceLines = ASSETS.map(a => {
@@ -481,24 +559,34 @@ Your role: Provide sharp, concise, actionable market analysis. Be direct — no 
 
   return (
     <motion.div
-      initial={{ height: 0, opacity: 0 }} animate={{ height: 380, opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+      initial={{ height: 0, opacity: 0 }} animate={{ height: collapsed ? 44 : 380, opacity: 1 }} exit={{ height: 0, opacity: 0 }}
       style={{ overflow: "hidden", borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column" }}
       role="region" aria-label="AI market analyst chat">
-      <div style={{ padding: "10px 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+      <button onClick={onToggleCollapsed} aria-expanded={!collapsed}
+        aria-label={collapsed ? "Expand AI market analyst" : "Collapse AI market analyst, keep browsing the list"}
+        className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+        style={{ padding: "10px 12px 10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between",
+          flexShrink: 0, background: "none", border: "none", cursor: "pointer", width: "100%", minHeight: 44 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ width: 24, height: 24, borderRadius: "50%", background: C.vBg, border: `1px solid ${C.vBr}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Ic d={PATHS.Sparkle} size={12} color={C.violet} />
           </div>
           <span style={{ fontSize: 11, fontWeight: 700, color: C.violet, letterSpacing: "0.1em" }}>AI MARKET ANALYST</span>
         </div>
-        {messages.length > 0 && (
-          <button onClick={() => setMessages([])} aria-label="Clear conversation"
-            style={{ fontSize: 10, color: C.faint, background: "none", border: "none", cursor: "pointer", letterSpacing: "0.06em", fontWeight: 700 }}>
-            CLEAR
-          </button>
-        )}
-      </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {!collapsed && messages.length > 0 && (
+            <span onClick={(e) => { e.stopPropagation(); setMessages([]); }} role="button" tabIndex={0} aria-label="Clear conversation"
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); setMessages([]); } }}
+              style={{ fontSize: 10, color: C.faint, letterSpacing: "0.06em", fontWeight: 700, cursor: "pointer" }}>
+              CLEAR
+            </span>
+          )}
+          <Ic d={collapsed ? PATHS.ChevronUp : PATHS.ChevronDown} size={15} color={C.muted} />
+        </div>
+      </button>
 
+      {!collapsed && (
+      <>
       <div style={{ flex: 1, overflowY: "auto", padding: "0 16px 8px", scrollbarWidth: "none" }} aria-live="polite">
         {messages.length === 0 ? (
           <div style={{ paddingTop: 4 }}>
@@ -567,6 +655,8 @@ Your role: Provide sharp, concise, actionable market analysis. Be direct — no 
           </motion.button>
         </div>
       </div>
+      </>
+      )}
     </motion.div>
   );
 }
